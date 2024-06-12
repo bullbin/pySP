@@ -162,3 +162,4 @@ cython_debug/
 # bull's extras
 nopush_*
 *.dng*
+*.png*
