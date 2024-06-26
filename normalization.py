@@ -1,5 +1,5 @@
 import numpy as np
-from bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
+from .bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 
 def bayer_normalize(rgbg : np.ndarray, chan_black : np.ndarray, chan_sat : np.ndarray):
     r, g1, b, g2 = bayer_to_rgbg(rgbg)

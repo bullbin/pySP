@@ -1,5 +1,5 @@
-from image import RawRgbgData, RawDebayerData
-from colorize import cam_to_lin_srgb
+from .image import RawRgbgData, RawDebayerData
+from .colorize import cam_to_lin_srgb
 import numpy as np
 from typing import Tuple, List, Optional
 

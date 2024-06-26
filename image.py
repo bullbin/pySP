@@ -2,10 +2,10 @@ from __future__ import annotations
 import numpy as np
 import exifread, rawpy
 from typing import Optional
-from normalization import bayer_normalize
-from bayer_chan_mixer import bayer_to_rgbg
+from .normalization import bayer_normalize
+from .bayer_chan_mixer import bayer_to_rgbg
 import cv2
-from const import QualityDemosaic
+from .const import QualityDemosaic
 from math import log
 
 class RawRgbgData():

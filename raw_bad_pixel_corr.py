@@ -1,8 +1,8 @@
 import numpy as np
 import cv2
 from typing import List, Optional
-from bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
-from image import RawRgbgData
+from .bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
+from .image import RawRgbgData
 
 # TODO - More aggressive checking for dimension sizes
 
