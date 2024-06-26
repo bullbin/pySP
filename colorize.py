@@ -1,6 +1,17 @@
 import numpy as np
 
 def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highlights : bool = True) -> np.ndarray:
+    """Convert an input image from camera-space to linearized sRGB colors.
+
+    Args:
+        rgb (np.ndarray): Debayered normalized camera-space RGB image.
+        cam_xyz_matrix (np.ndarray): Camera color matrix; this is supplied by the image object.
+        clip_highlights (bool, optional): Whether to clip highlights to reduce false highlight colors. Reduces color artifacts at cost of detail. Defaults to True.
+
+    Returns:
+        np.ndarray: Linearized sRGB image.
+    """
+
     # TODO - Assert CMYK
     mat = cam_xyz_matrix[:3]
     
@@ -26,6 +37,14 @@ def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highligh
     return rgb_pre.astype(np.float32)
 
 def lin_srgb_to_srgb(rgb : np.ndarray) -> np.ndarray:
+    """Convert an input linearized sRGB image to a true sRGB image by applying the gamma curve.
+
+    Args:
+        rgb (np.ndarray): Linearized sRGB image.
+
+    Returns:
+        np.ndarray: sRGB image.
+    """
     rgb[:,:,0] = np.clip(rgb[:,:,0], 0, 1)
     rgb[:,:,1] = np.clip(rgb[:,:,1], 0, 1)
     rgb[:,:,2] = np.clip(rgb[:,:,2], 0, 1)

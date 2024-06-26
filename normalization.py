@@ -1,7 +1,19 @@
 import numpy as np
 from .bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 
-def bayer_normalize(rgbg : np.ndarray, chan_black : np.ndarray, chan_sat : np.ndarray):
+def bayer_normalize(rgbg : np.ndarray, chan_black : np.ndarray, chan_sat : np.ndarray) -> np.ndarray:
+    """Normalize a Bayer image from sensor range to [0,1].
+
+    This converts the input to float32 and applies the black floor and saturation clipping.
+
+    Args:
+        rgbg (np.ndarray): Raw Bayer image in RGBG format.
+        chan_black (np.ndarray): Black level for each channel (minimum length 4).
+        chan_sat (np.ndarray): Saturation level for each channel (minimum length 4).
+
+    Returns:
+        np.ndarray: Normalized Bayer image.
+    """
     r, g1, b, g2 = bayer_to_rgbg(rgbg)
 
     # TODO - Check channel ordering, should be in Bayer pattern

@@ -3,7 +3,25 @@ from .colorize import cam_to_lin_srgb
 import numpy as np
 from typing import Tuple, List, Optional
 
-def fuse_exposures_from_debayer(in_exposures : List[RawDebayerData], target_ev : Optional[float] = None) -> Tuple[np.ndarray, np.ndarray]:
+def fuse_exposures_from_debayer(in_exposures : List[RawDebayerData], target_ev : Optional[float] = None) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Fuse exposures to linearized sRGB HDR from a list of debayered images.
+
+    This method operates in sensor-space so is unaffected by response curves or sensor saturation.
+    It works by the following:
+    - Using stored exposure values, images are shifted to the same target exposure.
+    - HDR image is fused by weighted averaging on both sensor saturation and EV difference to reduce noise amplification.
+
+    No noise reduction, bad pixel correction or alignment is performed. These must all be completed
+    prior to merging. Noise is controlled well as long as a pixel has multiple images to sample from.
+
+    Args:
+        in_exposures (List[RawDebayerData]): List of input debayered images.
+        target_ev (Optional[float], optional): Target exposure. Higher is darker. Defaults to None which will use the average of all inputs.
+
+    Returns:
+        Optional[Tuple[np.ndarray, np.ndarray]]: (Linearized sRGB image, debug buffer tracking amount of contributions for each pixel); None if no valid images were provided.
+    """
+
     valid_exposures : List[RawDebayerData] = []
     
     for exposure in in_exposures:
@@ -63,7 +81,29 @@ def fuse_exposures_from_debayer(in_exposures : List[RawDebayerData], target_ev :
 
     return (sum_pixel, debug_count_references)
 
-def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional[float] = None) -> Tuple[Optional[RawRgbgData], np.ndarray]:
+def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional[float] = None) -> Optional[Tuple[RawRgbgData, np.ndarray]]:
+    """Fuse exposures to a new HDR raw image from a list of raw images while preserving the Bayer pattern.
+
+    This method operates in sensor-space so is unaffected by response curves or sensor saturation.
+    It works by the following:
+    - Using stored exposure values, images are shifted to the same target exposure.
+    - HDR image is fused per sensor channel by weighted averaging on both sensor saturation and EV difference to reduce noise amplification.
+    
+    No noise reduction, bad pixel correction or alignment is performed. These must all be completed
+    prior to merging. Noise is controlled well as long as a pixel has multiple images to sample from.
+    
+    The output will need to be debayered to be used which may cause problems with highlight clipping
+    algorithms as HDR will extend channels beyond their natural clipping point. Make sure to use
+    HDR-agnostic debayering algorithms to ensure retention of dynamic range.
+
+    Args:
+        in_exposures (List[RawRgbgData]): List of input Bayer images.
+        target_ev (Optional[float], optional): Target exposure. Higher is darker. Defaults to None which will use the average of all inputs.
+
+    Returns:
+        Optional[Tuple[RawRgbgData, np.ndarray]]: (HDR Bayer image, debug buffer tracking amount of contributions for each pixel); None if no valid images were provided.
+    """
+
     valid_exposures : List[RawRgbgData] = []
     
     for exposure in in_exposures:
