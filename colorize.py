@@ -1,5 +1,20 @@
 import numpy as np
 
+def clip_rgb(rgb : np.ndarray) -> np.ndarray:
+    """Clip an RGB image to [0,1].
+
+    Args:
+        rgb (np.ndarray): RGB image.
+
+    Returns:
+        np.ndarray: Clipped RGB image.
+    """
+    out = np.zeros_like(rgb)
+    out[:,:,0] = np.clip(rgb[:,:,0], 0, 1)
+    out[:,:,1] = np.clip(rgb[:,:,1], 0, 1)
+    out[:,:,2] = np.clip(rgb[:,:,2], 0, 1)
+    return out
+
 def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highlights : bool = True) -> np.ndarray:
     """Convert an input image from camera-space to linearized sRGB colors.
 
@@ -22,9 +37,7 @@ def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highligh
     
     # TODO - Highlight recovery, allow for changing highlight peak to allow for subpixel HDR
     if clip_highlights:
-        rgb[:,:,0] = np.clip(rgb[:,:,0], 0, 1)
-        rgb[:,:,1] = np.clip(rgb[:,:,1], 0, 1)
-        rgb[:,:,2] = np.clip(rgb[:,:,2], 0, 1)
+        rgb = clip_rgb(rgb)
 
     # Credit - dcraw, https://ninedegreesbelow.com/files/dcraw-c-code-annotated-code.html#E3
     # Credit - https://stackoverflow.com/questions/8904694/how-to-normalize-a-2-dimensional-numpy-array-in-python-less-verbose
@@ -45,7 +58,17 @@ def lin_srgb_to_srgb(rgb : np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: sRGB image.
     """
-    rgb[:,:,0] = np.clip(rgb[:,:,0], 0, 1)
-    rgb[:,:,1] = np.clip(rgb[:,:,1], 0, 1)
-    rgb[:,:,2] = np.clip(rgb[:,:,2], 0, 1)
-    return np.where(rgb <= 0.0031308, rgb * 12.92, (1.055 * (rgb ** (1 / 2.4))) - 0.055)
+    rgb_working = clip_rgb(rgb)
+    return np.where(rgb_working <= 0.0031308, rgb_working * 12.92, (1.055 * (rgb_working ** (1 / 2.4))) - 0.055)
+
+def srgb_to_lin_srgb(srgb : np.ndarray) -> np.ndarray:
+    """Convert an sRGB image to a linearized sRGB image by removing the gamma curve.
+
+    Args:
+        srgb (np.ndarray): sRGB image.
+
+    Returns:
+        np.ndarray: Linearized sRGB image.
+    """
+    srgb_working = clip_rgb(srgb)
+    return np.where(srgb_working <= 0.04045, srgb_working / 12.92, ((srgb_working + 0.055) / 1.055) ** 2.4)

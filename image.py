@@ -97,8 +97,11 @@ class RawRgbgDataFromRaw(RawRgbgData):
             iso = 100
 
             if "EXIF ExposureTime" in tags:
-                exp_time = str(tags["EXIF ExposureTime"]).split("/")
-                exp_time = float(exp_time[0]) / float(exp_time[1])
+                if "/" in str(tags["EXIF ExposureTime"]):
+                    exp_time = str(tags["EXIF ExposureTime"]).split("/")
+                    exp_time = float(exp_time[0]) / float(exp_time[1])
+                else:
+                    exp_time = float(str(tags["EXIF ExposureTime"]))
             
             if "EXIF FNumber" in tags:
                 if "/" in str(tags["EXIF FNumber"]):
