@@ -9,6 +9,64 @@ from .const import QualityDemosaic
 from math import log
 from io import BytesIO
 
+def compute_ev(iso : int, exp_time : float, f_stop : float) -> float:
+    """Compute exposure value.
+
+    Args:
+        iso (int): Sensor gain.
+        exp_time (float): Exposure time, seconds.
+        f_stop (float): F-Stop, e.g., 1:3.5 corresponds to 3.5.
+
+    Returns:
+        float: Exposure value.
+    """
+
+    return log((100 * (f_stop * f_stop)) / (iso * exp_time), 2)
+
+def compute_ev_from_exif(filename_or_data : Union[str, bytes]) -> float:
+    """Compute exposure value from bundled EXIF data inside file.
+
+    Args:
+        filename_or_data (Union[str, bytes]): Either the filepath or bytes composing the raw file.
+
+    Returns:
+        float: Exposure value; np.inf if invalid.
+    """
+
+    exp_time = 1
+    f_stop = 1
+    iso = 100
+
+    try:
+        if type(filename_or_data) == str:
+            with open(filename_or_data, 'rb') as raw:
+                tags = exifread.process_file(raw)
+        else:
+            tags = exifread.process_file(BytesIO(filename_or_data))
+    except:
+        return np.inf
+    
+    if "EXIF ExposureTime" in tags:
+        if "/" in str(tags["EXIF ExposureTime"]):
+            exp_time = str(tags["EXIF ExposureTime"]).split("/")
+            exp_time = float(exp_time[0]) / float(exp_time[1])
+        else:
+            exp_time = float(str(tags["EXIF ExposureTime"]))
+    
+    if "EXIF FNumber" in tags:
+        if "/" in str(tags["EXIF FNumber"]):
+            f_stop = str(tags["EXIF FNumber"]).split("/")
+            f_stop = float(f_stop[0]) / float(f_stop[1])
+        else:
+            f_stop = int(str(tags["EXIF FNumber"]))
+
+    if "ISOSpeed" in tags:
+        iso = int(str(tags["ISOSpeed"]))
+    elif "Image Make" in tags and str(tags["Image Make"]) == "Panasonic" and "Image Tag 0x0017" in tags:
+        iso = int(str(tags["Image Tag 0x0017"]))
+
+    return compute_ev(iso, exp_time, f_stop)
+
 class RawRgbgData():
     def __init__(self):
         """Base class for storing raw RGBG Bayer sensor data.
@@ -82,41 +140,13 @@ class RawRgbgDataFromRaw(RawRgbgData):
             with rawpy.imread(reader) as in_dng:
                 chan_sat = in_dng.camera_white_level_per_channel
                 chan_black = in_dng.black_level_per_channel
-                self.wb_coeff = in_dng.daylight_whitebalance
+                self.wb_coeff = in_dng.camera_whitebalance
                 self.mat_xyz = in_dng.rgb_xyz_matrix
                 self.bayer_data_scaled = bayer_normalize(in_dng.raw_image, chan_black, chan_sat)
             
-            if type(filename_or_data) == str:
-                with open(filename_or_data, 'rb') as raw:
-                    tags = exifread.process_file(raw)
-            else:
-                tags = exifread.process_file(reader)
-            
-            exp_time = 1
-            f_stop = 1
-            iso = 100
-
-            if "EXIF ExposureTime" in tags:
-                if "/" in str(tags["EXIF ExposureTime"]):
-                    exp_time = str(tags["EXIF ExposureTime"]).split("/")
-                    exp_time = float(exp_time[0]) / float(exp_time[1])
-                else:
-                    exp_time = float(str(tags["EXIF ExposureTime"]))
-            
-            if "EXIF FNumber" in tags:
-                if "/" in str(tags["EXIF FNumber"]):
-                    f_stop = str(tags["EXIF FNumber"]).split("/")
-                    f_stop = float(f_stop[0]) / float(f_stop[1])
-                else:
-                    f_stop = int(str(tags["EXIF FNumber"]))
-
-            if "ISOSpeed" in tags:
-                iso = int(str(tags["ISOSpeed"]))
-            elif "Image Make" in tags and str(tags["Image Make"]) == "Panasonic" and "Image Tag 0x0017" in tags:
-                iso = int(str(tags["Image Tag 0x0017"]))
-
-            self.current_ev = log((100 * (f_stop * f_stop)) / (iso * exp_time), 2)
-            self.__is_valid = True
+            self.current_ev = compute_ev_from_exif(filename_or_data)
+            if self.current_ev != np.inf:
+                self.__is_valid = True
 
         except (rawpy.LibRawError, FileNotFoundError, IOError) as e:
             self.__is_valid = False
@@ -201,34 +231,7 @@ class RawDebayerDataFromRaw(RawDebayerData):
                                                 highlight_mode=rawpy.HighlightMode.Ignore)
             
             self.image = self.image.astype(np.float32) / ((2 ** 16) - 1)
-            
-            if type(filename_or_data) == str:
-                with open(filename_or_data, 'rb') as raw:
-                    tags = exifread.process_file(raw)
-            else:
-                tags = exifread.process_file(reader)
-            
-            exp_time = 1
-            f_stop = 1
-            iso = 100
-
-            if "EXIF ExposureTime" in tags:
-                exp_time = str(tags["EXIF ExposureTime"]).split("/")
-                exp_time = float(exp_time[0]) / float(exp_time[1])
-            
-            if "EXIF FNumber" in tags:
-                if "/" in str(tags["EXIF FNumber"]):
-                    f_stop = str(tags["EXIF FNumber"]).split("/")
-                    f_stop = float(f_stop[0]) / float(f_stop[1])
-                else:
-                    f_stop = int(str(tags["EXIF FNumber"]))
-
-            if "ISOSpeed" in tags:
-                iso = int(str(tags["ISOSpeed"]))
-            elif "Image Make" in tags and str(tags["Image Make"]) == "Panasonic" and "Image Tag 0x0017" in tags:
-                iso = int(str(tags["Image Tag 0x0017"]))
-
-            self.current_ev = log((100 * (f_stop * f_stop)) / (iso * exp_time), 2)
+            self.current_ev = compute_ev_from_exif(filename_or_data)
 
         except (rawpy.LibRawError, FileNotFoundError, IOError) as e:
             print(e)
