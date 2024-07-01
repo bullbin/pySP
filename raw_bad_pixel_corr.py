@@ -22,14 +22,47 @@ def median2(chan : np.ndarray) -> np.ndarray:
 
     chan_e_neighbour    = padded[1:-1, 2:]
     chan_s_neighbour    = padded[2:, 1:-1]
-
-    # chan_nw_neighbour   = padded[:-2, :-2]
-    # chan_ne_neighbour   = padded[:-2, 2:]
     chan_se_neighbour   = padded[2:, 2:]
-    # chan_sw_neighbour   = padded[2:, :-2]
     
     flattened = np.array([chan, chan_e_neighbour, chan_s_neighbour, chan_se_neighbour])
     return np.median(flattened, axis=0)
+
+def find_erroneous_pixels_threshold(bayer_scaled : np.ndarray, min_delta : float = 0.025, min_neighbour_count : int = 5) -> List[np.ndarray]:
+    """Finds shared erroneous pixels on each color channel based on differences from its 8
+    neighbouring pixels. Hot pixels are considered as pixels that are greater than some
+    fixed difference from their neighbours.
+
+    Args:
+        bayer_scaled (np.ndarray): Normalized Bayer image with RGBG pattern.
+        min_delta (float, optional): Minimum difference from neighbours before considered hot. Defaults to 0.025.
+        min_neighbour_count (int, optional): Minimum amount of neigbhours making this pixel hot before pixel is considered erroneous. Defaults to 5.
+
+    Returns:
+        List[np.ndarray]: List of boolean masks where True means hot, per channel
+    """
+
+    def find_erroneous_pixels_threshold_chan(chan : np.ndarray) -> np.ndarray:
+        padded = np.pad(chan, (1,1), mode="reflect")
+
+        chan_n_neighbour    = padded[:-2, 1:-1]
+        chan_e_neighbour    = padded[1:-1, 2:]
+        chan_s_neighbour    = padded[2:, 1:-1]
+        chan_w_neighbour    = padded[1:-1, :-2]
+
+        chan_nw_neighbour   = padded[:-2, :-2]
+        chan_ne_neighbour   = padded[:-2, 2:]
+        chan_se_neighbour   = padded[2:, 2:]
+        chan_sw_neighbour   = padded[2:, :-2]
+
+        flattened = np.array([chan_n_neighbour, chan_e_neighbour, chan_s_neighbour, chan_w_neighbour, chan_nw_neighbour, chan_ne_neighbour, chan_se_neighbour, chan_sw_neighbour])
+        higher = np.greater(chan - min_delta, flattened)
+        return np.sum(higher, axis=0) > min_neighbour_count
+
+    masks = []
+    for chan in bayer_to_rgbg(bayer_scaled):
+        masks.append(find_erroneous_pixels_threshold_chan(chan))
+
+    return masks
 
 def find_erroneous_pixels_median(bayer_scaled : np.ndarray, multiplier : float = 1.5, quantile : float = 0.9999) -> List[np.ndarray]:
     """Finds erroneous pixels on each color channel based on differences from

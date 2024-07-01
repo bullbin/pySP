@@ -228,7 +228,7 @@ class RawDebayerDataFromRaw(RawDebayerData):
                                                 output_color=rawpy.ColorSpace.raw,
                                                 output_bps=16,
                                                 no_auto_bright=True,
-                                                highlight_mode=rawpy.HighlightMode.Ignore)
+                                                highlight_mode=rawpy.HighlightMode.Clip)
             
             self.image = self.image.astype(np.float32) / ((2 ** 16) - 1)
             self.current_ev = compute_ev_from_exif(filename_or_data)
