@@ -27,13 +27,13 @@ def median2(chan : np.ndarray) -> np.ndarray:
     flattened = np.array([chan, chan_e_neighbour, chan_s_neighbour, chan_se_neighbour])
     return np.median(flattened, axis=0)
 
-def find_erroneous_pixels_threshold(bayer_scaled : np.ndarray, min_delta : float = 0.025, min_neighbour_count : int = 5) -> List[np.ndarray]:
+def find_erroneous_pixels_threshold(image : RawRgbgData, min_delta : float = 0.025, min_neighbour_count : int = 5) -> List[np.ndarray]:
     """Finds shared erroneous pixels on each color channel based on differences from its 8
     neighbouring pixels. Hot pixels are considered as pixels that are greater than some
     fixed difference from their neighbours.
 
     Args:
-        bayer_scaled (np.ndarray): Normalized Bayer image with RGBG pattern.
+        image (RawRgbgData): Bayer image with RGBG pattern.
         min_delta (float, optional): Minimum difference from neighbours before considered hot. Defaults to 0.025.
         min_neighbour_count (int, optional): Minimum amount of neigbhours making this pixel hot before pixel is considered erroneous. Defaults to 5.
 
@@ -59,17 +59,17 @@ def find_erroneous_pixels_threshold(bayer_scaled : np.ndarray, min_delta : float
         return np.sum(higher, axis=0) > min_neighbour_count
 
     masks = []
-    for chan in bayer_to_rgbg(bayer_scaled):
+    for chan in bayer_to_rgbg(image.bayer_data_scaled):
         masks.append(find_erroneous_pixels_threshold_chan(chan))
 
     return masks
 
-def find_erroneous_pixels_median(bayer_scaled : np.ndarray, multiplier : float = 1.5, quantile : float = 0.9999) -> List[np.ndarray]:
+def find_erroneous_pixels_median(image : RawRgbgData, multiplier : float = 1.5, quantile : float = 0.9999) -> List[np.ndarray]:
     """Finds erroneous pixels on each color channel based on differences from
     a small median blur.
 
     Args:
-        bayer_scaled (np.ndarray): Normalized Bayer image with RGBG pattern.
+        image (RawRgbgData): Bayer image with RGBG pattern.
         multiplier (float, optional): Multiplier for hot pixel threshold. Higher requires more difference to trigger. Defaults to 1.5.
         quantile (float, optional): Quartile where hot pixels sit for thresholding. Should be between 0 and 1; higher is stricter. Defaults to 0.9999.
 
@@ -79,7 +79,7 @@ def find_erroneous_pixels_median(bayer_scaled : np.ndarray, multiplier : float =
 
     masks : List[np.ndarray] = []
 
-    for chan in bayer_to_rgbg(bayer_scaled):
+    for chan in bayer_to_rgbg(image.bayer_data_scaled):
         chan_blur = median2(chan)
         delta = np.abs(chan - chan_blur)
         noise_floor = np.mean(delta)
