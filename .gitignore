@@ -163,3 +163,4 @@ cython_debug/
 nopush_*
 *.dng*
 *.png*
+debayer/ahd_homogeneity_cython.c
