@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 import cv2
 import numpy as np
@@ -6,9 +6,9 @@ import numpy as np
 from .ahd_homogeneity_cython import build_map
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize import cam_to_lin_srgb
-from ..image import RawDebayerData, RawRgbgData
+from ..image import RawDebayerData, RawRgbgData, HdrRgbgData
 
-def debayer(image : RawRgbgData, deartifact : bool = True, postprocess : bool = True) -> Optional[RawDebayerData]:
+def debayer(image : Union[RawRgbgData, HdrRgbgData], deartifact : bool = True, postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
     This is slow but produces high-quality results with reduced zippering and smooth graduation.
@@ -16,8 +16,10 @@ def debayer(image : RawRgbgData, deartifact : bool = True, postprocess : bool = 
     This works by using recreating the green channel for red and blue in two directions and using a
     smoothness metric to pick the resulting direction that produces the least artifacts.
 
+    If a HDR image is provided, internal tonemapping will be performed while reducing zipper artifacts.
+
     Args:
-        image (RawRgbgData): Bayer image with RGBG pattern.
+        image (Union[RawRgbgData, HdrRgbgData]): Bayer image with RGBG pattern.
         deartifact (bool, optional): Restrict interpolation to within surrounding channels. Defaults to True.
         postprocess (bool, optional): Reduce color bleeding. Defaults to True.
 
@@ -25,7 +27,7 @@ def debayer(image : RawRgbgData, deartifact : bool = True, postprocess : bool = 
         Optional[RawDebayerData]: Debayered image; None if image is not valid.
     """
 
-    def build_homogeneity_map(r : np.ndarray, g : np.ndarray, b : np.ndarray, is_vertical : bool, domain_k : int = 5) -> np.ndarray:
+    def build_homogeneity_map(r : np.ndarray, g : np.ndarray, b : np.ndarray, is_vertical : bool, domain_k : int = 3) -> np.ndarray:
 
         # Domain ball neighborhood - pixels within d distance of x
         # Level neighborhood - pixels within epsilon brightness of x
@@ -41,8 +43,19 @@ def debayer(image : RawRgbgData, deartifact : bool = True, postprocess : bool = 
         im_rgb = cam_to_lin_srgb(np.dstack((r * image.wb_coeff[0],
                                             g * image.wb_coeff[1],
                                             b * image.wb_coeff[2])), image.mat_xyz, clip_highlights=False)
+        
+        if isinstance(image, HdrRgbgData):
+            # If the image is HDR, we can't formulate a CIELAB representation
+            # Instead, use luma for L* and tonemap to get A*B*.
+            luma = 0.2126 * im_rgb[:,:,0] + 0.7152 * im_rgb[:,:,1] + 0.0722 * im_rgb[:,:,2]
+            
+            im_rgb = im_rgb / (1 + im_rgb)
+            lab = cv2.cvtColor(im_rgb, cv2.COLOR_RGB2LAB)
+            lab[:,:,0] = luma
+        else:
+            # TODO - Maybe clamp for safety
+            lab = cv2.cvtColor(im_rgb, cv2.COLOR_RGB2LAB)
 
-        lab = cv2.cvtColor(im_rgb, cv2.COLOR_RGB2LAB)
         lab = cv2.copyMakeBorder(lab, k_pad, k_pad, k_pad, k_pad, cv2.BORDER_REFLECT)
         
         homogeneity = build_map(lab, k_pad, domain_k, is_vertical)
@@ -103,10 +116,7 @@ def debayer(image : RawRgbgData, deartifact : bool = True, postprocess : bool = 
     b_h = cv2.pyrUp(b[1:-1, 1:-1] - gh_b) + g_h
     b_v = cv2.pyrUp(b[1:-1, 1:-1] - gv_b) + g_v
     
-    print("Building homogeneity map (horizontal)...")
     map_h = build_homogeneity_map(r_h, b_h, g_h, False)
-
-    print("Building homogeneity map (vertical)...")
     map_v = build_homogeneity_map(r_v, b_v, g_v, True)
 
     rgb_h = np.dstack((r_h, g_h, b_h))
@@ -145,9 +155,8 @@ def debayer(image : RawRgbgData, deartifact : bool = True, postprocess : bool = 
     debayered[:,:,1] = debayered[:,:,1] * image.wb_coeff[1]
     debayered[:,:,2] = debayered[:,:,2] * image.wb_coeff[2]
 
-    if postprocess:
-        debayered = postprocess_color(debayered)
-        debayered = postprocess_color(debayered)
+    postprocess_stages = max(postprocess_stages, 0)
+    for _i in range(postprocess_stages):
         debayered = postprocess_color(debayered)
 
     debayered = RawDebayerData(debayered, np.copy(image.wb_coeff), wb_norm=False)

@@ -21,18 +21,10 @@ cdef float get_diff_square(float a_x, float a_y, float b_x, float b_y) noexcept 
 @cython.wraparound(False)
 cdef void compute_map(DTYPE_t[:,:,:] lab, DTYPE_t[:,:] output, int r_x, int r_y, int k_pad, bint is_vertical) noexcept nogil:
     
-    cdef int s_y
-    cdef int s_x
+    cdef int s_y, s_x, x, y, w_x, w_y
+    cdef float ref_l, ref_a, ref_b, epsi_l, epsi_c_2
+
     cdef int domain_k = k_pad * 2 + 1
-
-    cdef float ref_l
-    cdef float ref_a
-    cdef float ref_b
-
-    cdef float epsi_l
-    cdef float epsi_c_2
-
-    cdef int x, y, w_x, w_y
     
     with parallel():
         for x in prange(r_x):
@@ -46,7 +38,7 @@ cdef void compute_map(DTYPE_t[:,:,:] lab, DTYPE_t[:,:] output, int r_x, int r_y,
                 ref_a = lab[s_y,s_x,1]
                 ref_b = lab[s_y,s_x,2]
 
-                # Compute bounds
+                # Compute bounds by assuming edge and looking at relevant neighbour pixels
                 if is_vertical:
                     epsi_l = max(abs(ref_l - lab[s_y - 1,s_x,0]),
                                     abs(ref_l - lab[s_y + 1,s_x,0]))
@@ -58,7 +50,7 @@ cdef void compute_map(DTYPE_t[:,:,:] lab, DTYPE_t[:,:] output, int r_x, int r_y,
                     epsi_c_2 = max(get_diff_square(ref_a, ref_b, lab[s_y,s_x - 1][1], lab[s_y,s_x - 1][2]),
                                     get_diff_square(ref_a, ref_b, lab[s_y,s_x + 1][1], lab[s_y,s_x + 1][2]))
 
-                # Get domain window
+                # Consider pixels in window homogenenous if within bounds of brightness and color
                 for w_x in prange(x, x + domain_k):
                     for w_y in prange(y, y + domain_k):
                         if lab[w_y, w_x, 0] - ref_l <= epsi_l:

@@ -1,4 +1,4 @@
-from .image import RawRgbgData, RawDebayerData
+from .image import HdrRgbgData, RawRgbgData, RawDebayerData
 from .colorize import cam_to_lin_srgb
 import numpy as np
 from typing import Tuple, List, Optional
@@ -81,7 +81,7 @@ def fuse_exposures_from_debayer(in_exposures : List[RawDebayerData], target_ev :
 
     return (sum_pixel, debug_count_references)
 
-def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional[float] = None) -> Optional[Tuple[RawRgbgData, np.ndarray]]:
+def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional[float] = None) -> Optional[Tuple[HdrRgbgData, np.ndarray]]:
     """Fuse exposures to a new HDR raw image from a list of raw images while preserving the Bayer pattern.
 
     This method operates in sensor-space so is unaffected by response curves or sensor saturation.
@@ -101,7 +101,7 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
         target_ev (Optional[float], optional): Target exposure. Higher is darker. Defaults to None which will use the average of all inputs.
 
     Returns:
-        Optional[Tuple[RawRgbgData, np.ndarray]]: (HDR Bayer image, debug buffer tracking amount of contributions for each pixel); None if no valid images were provided.
+        Optional[Tuple[HdrRgbgData, np.ndarray]]: (HDR Bayer image, debug buffer tracking amount of contributions for each pixel); None if no valid images were provided.
     """
 
     valid_exposures : List[RawRgbgData] = []
@@ -134,7 +134,8 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     # If this isn't the case, favor the sample with lower boost required.
     # We can probably roughly compute the sample by performing non-saturated median on sample area to check for rejected areas.
     for exposure, ev_offset in zip(valid_exposures, ev_offsets):
-        weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5))
+        bias = 1.6 ** (-0.1 * ev_offset)                                        # Bias stacking to favor closest EV - this is just a random curve that should weight
+        weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5)) * bias
         sum_weight += weights
         sum_pixel += exposure.bayer_data_scaled * weights * ev_offset
 
@@ -147,7 +148,7 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
         sum_pixel = np.divide(sum_pixel, sum_weight)
     sum_pixel = np.where(sum_weight == 0, max_exposure, sum_pixel)
 
-    hdr_image = RawRgbgData()
+    hdr_image = HdrRgbgData()
     hdr_image.bayer_data_scaled = sum_pixel
     hdr_image.current_ev = target_ev
     hdr_image.lim_sat = max(ev_offsets)

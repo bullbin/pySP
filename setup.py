@@ -7,6 +7,7 @@ import numpy
 setup(
     ext_modules=cythonize((Extension("debayer.ahd_homogeneity_cython",
                                      sources=["debayer\\ahd_homogeneity_cython.pyx"],
-                                     extra_compile_args=['/openmp', '/Ox'],
-                                     include_dirs=[numpy.get_include()])))
+                                     extra_compile_args=['/openmp:llvm', '/Ox', '/fp:fast'],
+                                     include_dirs=[numpy.get_include()])),
+                          compiler_directives={'language_level' : "3"})
 )

@@ -154,6 +154,10 @@ class RawRgbgDataFromRaw(RawRgbgData):
     def is_valid(self) -> bool:
         return self.__is_valid
 
+class HdrRgbgData(RawRgbgData):
+    def __init__(self):
+        super().__init__()
+
 class RawDebayerData():
     def __init__(self, image : np.ndarray, wb_coeff : np.ndarray, wb_norm : bool = False):
         """Class for storing RGB pixel data after debayering.
