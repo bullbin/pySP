@@ -6,7 +6,7 @@ pySP is designed to simplify the less intuitive parts of raw image processing wh
 
 pySP has the following features:
  - Raw bayer value decoding via rawpy (libraw)
- - Debayering (simple shift algorithm, fast but low quality)
+ - Multiple debayering options for speed or quality
  - Color processing (camera white balancing, transforming to sRGB)
  - Bad photosite healing
  - HDR stacking in raw space
@@ -14,7 +14,7 @@ pySP has the following features:
 Using debayering via rawpy, the following features are also available:
 
  - Denoising via "Fake Before Demosaicing Denoising"
- - Better demosaic algorithms (e.g., AHD) that improve detail and reduce fringing
+ - Better demosaicing algorithms that improve detail and reduce fringing
 
 pySP currently only supports RGBG sensors but because it uses libraw for raw decoding, most vendor-specific raw formats are supported natively.
 
@@ -23,15 +23,29 @@ After cloning pySP, install its requirements via pip, i.e.,
 
     pip install -r requirements.txt
 
-pySP is designed to be used as a submodule so you can clone the folder straight into your project and straightaway import it as a library.
+Some performance-critical parts of pySP are written in Cython. Currently, compiler arguments are only correct under MSVC so can only be built for Windows x86-64. Compile this with the following:
+
+    python setup.py build_ext --inplace
+
+pySP is designed to be used as a submodule. Once cloned and built, it can be imported straightaway as a library.
 
 ## how do I use pySP?
 
 ### Converting a raw to an sRGB image
 Raw processing transitions through different colorspaces, some linear and some gamma corrected. Gamma correction is required for images to render as expected but any operations on images should happen inside linear space. The output from debayering is within the camera's own linear space (after white balancing). pySP currently only supports the sRGB colorspace and provides methods to transform from camera space to sRGB for image rendering.
 
-#### Debayering via pySP (fast, lower quality)
+Debayering via pySP uses the following algorithms at each quality setting:
 
+ - Draft - Use RB as is, average G and bilinear upscale
+	 - Fast but adds no detail and reduces sharpness and leaves fringing
+ - Fast - Unimplemented, planned to trade off between Best/Draft
+ - Best - Adaptive Homogeneity-Directed Demosaicing algorithm (Hirakawa, K. and Parks, T.W., 2005)
+	 - Sharpens detail well with minimal zippering
+	 - Slower than libraw for performance critical applications but supports HDR
+	 - Implementation is naive and follows paper exactly; fringing is corrected using their color postprocessing method which can inadvertently remove small colored details
+	 -  Postprocessing can be adjusted with the `postprocess_stages` argument
+
+#### Debayering via pySP
     from pySP.const import QualityDemosaic
     from pySP.colorize import cam_to_lin_srgb, lin_srgb_to_srgb
     from pySP.image import RawRgbgDataFromRaw
@@ -87,7 +101,7 @@ High dynamic range stacking is provided as a way to reduce noise and expand dyna
 All stacking operations work inside camera-space although only sensor-space stacking can use raw Bayer data. pySP provides no highlight reconstruction so highlights retain perfect color saturation. Noise is reduced by biasing with reference to camera white balance and weighing in favor of closer exposures rather than amplifying noise present in further exposures.
 
 #### Stacking in sensor-space (less artifacts, higher accuracy)
-Sensor-space stacking works on photosite data so retains the complete dynamic tonal of each image with accurate clipping. Because this requires raw Bayer data, it is only compatible with pySP's debayering. The output of this method is a new Bayer image with photosite responses that can exceed 1.
+Sensor-space stacking works on photosite data so retains the complete dynamic range of each image with accurate clipping. Because this requires raw Bayer data, it is only compatible with pySP's debayering. The output of this method is a new Bayer image with photosite responses that can exceed 1.
 
     from pySP.image import RawRgbgDataFromRaw
     from pySP.raw_hdr import fuse_exposures_to_raw

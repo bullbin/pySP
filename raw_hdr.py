@@ -101,7 +101,7 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
         target_ev (Optional[float], optional): Target exposure. Higher is darker. Defaults to None which will use the average of all inputs.
 
     Returns:
-        Optional[Tuple[RawRgbgData, np.ndarray]]: (HDR Bayer image, debug buffer tracking amount of contributions for each pixel); None if no valid images were provided.
+        Optional[Tuple[HdrRgbgData, np.ndarray]]: (HDR Bayer image, debug buffer tracking amount of contributions for each pixel); None if no valid images were provided.
     """
 
     valid_exposures : List[RawRgbgData] = []
@@ -134,7 +134,8 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     # If this isn't the case, favor the sample with lower boost required.
     # We can probably roughly compute the sample by performing non-saturated median on sample area to check for rejected areas.
     for exposure, ev_offset in zip(valid_exposures, ev_offsets):
-        weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5))
+        bias = 1.6 ** (-0.1 * ev_offset)                                        # Bias stacking to favor closest EV - this is just a random curve that should weight
+        weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5)) * bias
         sum_weight += weights
         sum_pixel += exposure.bayer_data_scaled * weights * ev_offset
 
@@ -153,5 +154,6 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     hdr_image.lim_sat = max(ev_offsets)
     hdr_image.mat_xyz = np.copy(valid_exposures[0].mat_xyz)
     hdr_image.wb_coeff = np.copy(valid_exposures[0].wb_coeff)
+    hdr_image.set_hdr(True)
 
     return (hdr_image, debug_count_references)
