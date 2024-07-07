@@ -6,9 +6,9 @@ import numpy as np
 from .ahd_homogeneity_cython import build_map
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize import cam_to_lin_srgb
-from ..image import RawDebayerData, RawRgbgData, HdrRgbgData
+from ..base_types.image_base import RawRgbgData_BaseType, RawDebayerData
 
-def debayer(image : Union[RawRgbgData, HdrRgbgData], deartifact : bool = True, postprocess_stages : int = 1) -> Optional[RawDebayerData]:
+def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
     This is slow but produces high-quality results with reduced zippering and smooth graduation.
@@ -19,7 +19,7 @@ def debayer(image : Union[RawRgbgData, HdrRgbgData], deartifact : bool = True, p
     If a HDR image is provided, internal tonemapping will be performed while reducing zipper artifacts.
 
     Args:
-        image (Union[RawRgbgData, HdrRgbgData]): Bayer image with RGBG pattern.
+        image (RawRgbgData_BaseType): Bayer image with RGBG pattern.
         deartifact (bool, optional): Restrict interpolation to within surrounding channels. Defaults to True.
         postprocess (bool, optional): Reduce color bleeding. Defaults to True.
 
@@ -44,7 +44,7 @@ def debayer(image : Union[RawRgbgData, HdrRgbgData], deartifact : bool = True, p
                                             g * image.wb_coeff[1],
                                             b * image.wb_coeff[2])), image.mat_xyz, clip_highlights=False)
         
-        if isinstance(image, HdrRgbgData):
+        if image.get_hdr():
             # If the image is HDR, we can't formulate a CIELAB representation
             # Instead, use luma for L* and tonemap to get A*B*.
             luma = 0.2126 * im_rgb[:,:,0] + 0.7152 * im_rgb[:,:,1] + 0.0722 * im_rgb[:,:,2]

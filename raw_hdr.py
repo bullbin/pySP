@@ -1,4 +1,4 @@
-from .image import HdrRgbgData, RawRgbgData, RawDebayerData
+from .image import RawRgbgData, RawDebayerData
 from .colorize import cam_to_lin_srgb
 import numpy as np
 from typing import Tuple, List, Optional
@@ -81,7 +81,7 @@ def fuse_exposures_from_debayer(in_exposures : List[RawDebayerData], target_ev :
 
     return (sum_pixel, debug_count_references)
 
-def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional[float] = None) -> Optional[Tuple[HdrRgbgData, np.ndarray]]:
+def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional[float] = None) -> Optional[Tuple[RawRgbgData, np.ndarray]]:
     """Fuse exposures to a new HDR raw image from a list of raw images while preserving the Bayer pattern.
 
     This method operates in sensor-space so is unaffected by response curves or sensor saturation.
@@ -148,11 +148,12 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
         sum_pixel = np.divide(sum_pixel, sum_weight)
     sum_pixel = np.where(sum_weight == 0, max_exposure, sum_pixel)
 
-    hdr_image = HdrRgbgData()
+    hdr_image = RawRgbgData()
     hdr_image.bayer_data_scaled = sum_pixel
     hdr_image.current_ev = target_ev
     hdr_image.lim_sat = max(ev_offsets)
     hdr_image.mat_xyz = np.copy(valid_exposures[0].mat_xyz)
     hdr_image.wb_coeff = np.copy(valid_exposures[0].wb_coeff)
+    hdr_image.set_hdr(True)
 
     return (hdr_image, debug_count_references)
