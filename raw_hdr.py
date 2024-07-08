@@ -1,3 +1,4 @@
+from pySP.bayer_chan_mixer import rgbg_to_bayer
 from .image import RawRgbgData, RawDebayerData
 from .colorize import cam_to_lin_srgb
 import numpy as np
@@ -129,13 +130,16 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     sum_pixel = np.zeros_like(valid_exposures[0].bayer_data_scaled)
     sum_weight = np.zeros_like(valid_exposures[0].bayer_data_scaled)
 
-    # TODO - Bad sample rejection
-    # If EVs are ordered, weights should be ordered too, with a peak at the best EV.
-    # If this isn't the case, favor the sample with lower boost required.
-    # We can probably roughly compute the sample by performing non-saturated median on sample area to check for rejected areas.
+    # Since we'll correct WB later, add additional bias on WB to reduce noise gain after WB is scaled
+    bayer_noise_weight = np.ones((valid_exposures[0].bayer_data_scaled.shape[0] // 2, valid_exposures[0].bayer_data_scaled.shape[1] // 2), dtype=np.float32)
+    bayer_noise_weight = rgbg_to_bayer(bayer_noise_weight * valid_exposures[0].wb_coeff[0],
+                                       valid_exposures[0].wb_coeff[1],
+                                       valid_exposures[0].wb_coeff[2],
+                                       valid_exposures[0].wb_coeff[1])
+
     for exposure, ev_offset in zip(valid_exposures, ev_offsets):
-        bias = 1.6 ** (-0.1 * ev_offset)                                        # Bias stacking to favor closest EV - this is just a random curve that should weight
-        weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5)) * bias
+        bias = 1.6 ** (-0.1 * ev_offset * bayer_noise_weight)               # Bias stacking to favor closest EV - this is just a random curve that should weight
+        weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5)) * bias   #     target EVs (~0) at 1 and EVs up to 16x gaps still favorably (ISO 1600 is still good)
         sum_weight += weights
         sum_pixel += exposure.bayer_data_scaled * weights * ev_offset
 
