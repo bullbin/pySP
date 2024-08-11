@@ -1,6 +1,7 @@
 from typing import Optional
 import numpy as np
 
+from pySP.colorize import cam_to_lin_srgb
 from pySP.const import QualityDemosaic
 
 class RawDebayerData():
@@ -45,6 +46,9 @@ class RawDebayerData():
             self.image = (self.image.astype(np.float64) / self._wb_coeff[:3]).astype(np.float32)
             self._wb_applied = False
             self._wb_normalized = False
+    
+    def to_lin_srgb(self):
+        return cam_to_lin_srgb(self.image, self.mat_xyz)
 
 class RawRgbgData_BaseType():
     def __init__(self):

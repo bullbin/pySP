@@ -1,5 +1,6 @@
-Cython==3.0.9
+Cython==3.0.10
 ExifRead==3.0.0
-numpy==1.24.1
-opencv_python==4.9.0.80
-rawpy==0.21.0
+numpy==1.23.5
+opencv_python==4.8.0.76
+rawpy==0.18.1
+tifftools==1.5.2

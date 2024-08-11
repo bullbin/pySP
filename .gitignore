@@ -164,3 +164,4 @@ nopush_*
 *.dng*
 *.png*
 debayer/ahd_homogeneity_cython.c
+dng_warp_corr/dng_warp_rectilinear_coords.c

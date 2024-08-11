@@ -138,7 +138,7 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
                                        valid_exposures[0].wb_coeff[1])
 
     for exposure, ev_offset in zip(valid_exposures, ev_offsets):
-        bias = 1.6 ** (-0.1 * ev_offset * bayer_noise_weight)               # Bias stacking to favor closest EV - this is just a random curve that should weight
+        bias = 1.6 ** (-0.1 * np.abs(ev_offset * bayer_noise_weight))       # Bias stacking to favor closest EV - this is just a random curve that should weight
         weights = (0.5 - np.abs(exposure.bayer_data_scaled - 0.5)) * bias   #     target EVs (~0) at 1 and EVs up to 16x gaps still favorably (ISO 1600 is still good)
         sum_weight += weights
         sum_pixel += exposure.bayer_data_scaled * weights * ev_offset

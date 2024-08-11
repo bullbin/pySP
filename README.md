@@ -147,4 +147,5 @@ To render this image tonemapping is required. It is recommended that HDR images 
 ## credits (and thanks)
  - Contributors of [rawpy](https://github.com/letmaik/rawpy) (and [libraw](https://www.libraw.org/)) for doing the hard work decoding raw images
  - [Nine Degrees Below](https://ninedegreesbelow.com/files/dcraw-c-code-annotated-code.html) for their excellent write-up on dcraw's raw processing
+ - Adobe for making the [DNG specification](https://helpx.adobe.com/uk/camera-raw/digital-negative.html) both accessible and understandable
 
