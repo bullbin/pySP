@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import tifftools
 
-from .dng_warp_rectilinear_coords import compute_remapping_table
+from .dng_warp_rectilinear_coords import compute_remapping_table, compute_offset_remapping_table
 
 def invert_remapping(mapping : np.ndarray):
     """Invert an image mapping table in-place.
@@ -41,7 +41,7 @@ def invert_remapping(mapping : np.ndarray):
     mapping[:, :, 0] = x_map
     mapping[:, :, 1] = y_map
 
-def apply_opcode_3_warp(demosaiced_image : np.ndarray, ifd_opcode_3_data : bytes, invert_warp : bool):
+def apply_opcode_3_warp(demosaiced_image : np.ndarray, ifd_opcode_3_data : bytes, invert_warp : bool, prior : Optional[np.ndarray] = None):
     """Apply the WarpRectilinear distortion correction operator from DNG data. Other opcodes will be skipped.
     Operations are applied in-place and in-order. While our WarpRectilinear implementation roughly follows
     spec, it may not match other raw processors that are closer to spec (i.e., use clamping) or have support
@@ -55,6 +55,7 @@ def apply_opcode_3_warp(demosaiced_image : np.ndarray, ifd_opcode_3_data : bytes
         demosaiced_image (np.ndarray): Raw image after demosaicing.
         ifd_opcode_3_data (bytes): Full data section for the OpcodeList3 block.
         invert_warp (bool): True to invert warp, False to use as-is.
+        prior (Optional[np.ndarray]): Prior mapping before warping. Should have shape [height,width,channels,2]. Defaults to None, so returns new transform.
     """
 
     def opcode_warp_rectilinear(image : np.ndarray, data : bytes, invert_warp : bool) -> bool:
@@ -91,9 +92,12 @@ def apply_opcode_3_warp(demosaiced_image : np.ndarray, ifd_opcode_3_data : bytes
         # Apply per-channel correction
         for idx_coeff, coefficient in enumerate(coefficients):
             kr0, kr1, kr2, kr3, kt0, kt1 = coefficient
-            map_dist_corr = compute_remapping_table(kr0, kr1, kr2, kr3, kt0, kt1, image.shape[1], image.shape[0], cam_center_normalized[0], cam_center_normalized[1])
-            
-            if invert_warp:
+            if prior is None:
+                map_dist_corr = compute_remapping_table(kr0, kr1, kr2, kr3, kt0, kt1, image.shape[1], image.shape[0], cam_center_normalized[0], cam_center_normalized[1])
+            else:
+                map_dist_corr = compute_offset_remapping_table(prior[...,idx_coeff,:], kr0, kr1, kr2, kr3, kt0, kt1, image.shape[1], image.shape[0], cam_center_normalized[0], cam_center_normalized[1])
+
+            if invert_warp and prior is None:
                 # Invert the mapping. This is probably not intended but it makes the image flatter
                 #     This held true with another camera too (older version of digitizer based on a compact camera)
                 invert_remapping(map_dist_corr)
@@ -101,6 +105,8 @@ def apply_opcode_3_warp(demosaiced_image : np.ndarray, ifd_opcode_3_data : bytes
             # Apply warp
             image[:, :, idx_coeff] = cv2.remap(image[:, :, idx_coeff], map_dist_corr[:,:,0], map_dist_corr[:,:,1], cv2.INTER_LANCZOS4)
         return True
+
+    assert prior is None or prior.shape == (demosaiced_image.shape[0], demosaiced_image.shape[1], demosaiced_image.shape[2], 2)
 
     count_opcodes = int.from_bytes(ifd_opcode_3_data[:4], byteorder = 'big')
     offset = 4

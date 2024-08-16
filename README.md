@@ -10,6 +10,8 @@ pySP has the following features:
  - Color processing (camera white balancing, transforming to sRGB)
  - Bad photosite healing
  - HDR stacking in raw space
+ - Shading (flat field) correction
+ - Embedded per-channel distortion correction
 
 Using debayering via rawpy, the following features are also available:
 
@@ -57,7 +59,7 @@ Debayering via pySP uses the following algorithms at each quality setting:
     debayered_linear = cam_to_lin_srgb(image_debayered.image, image_debayered.mat_xyz)
     debayered_srgb = lin_srgb_to_srgb(debayered_linear)
 
-#### Debayering via libraw (slow, higher quality)
+#### Debayering via libraw (slow, different algorithms)
 
 By default, rawpy is configured to apply noise reduction and will produce a slightly different tint to the image. Precision is otherwise the same so this is easy to correct. This method blocks access to raw Bayer data.
 
