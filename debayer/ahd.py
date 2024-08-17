@@ -111,27 +111,47 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     g_v = rgbg_to_bayer(gv_r, g1[1:-1, 1:-1], gv_b, g2[1:-1, 1:-1])
 
     # Reconstruct full resolution other channels
-    r_h = cv2.pyrUp(r[1:-1, 1:-1] - gh_r) + g_h
-    r_v = cv2.pyrUp(r[1:-1, 1:-1] - gv_r) + g_v
-    b_h = cv2.pyrUp(b[1:-1, 1:-1] - gh_b) + g_h
-    b_v = cv2.pyrUp(b[1:-1, 1:-1] - gv_b) + g_v
-    
-    map_h = build_homogeneity_map(r_h, b_h, g_h, False)
-    map_v = build_homogeneity_map(r_v, b_v, g_v, True)
+    # Low pass filter is bilinear, like presented in paper
+    # Modern implementations use a Gaussian filter, this can be done later (try 5x5 Gaussian)
+    def expand_red(chan_red : np.ndarray, ref : np.ndarray) -> np.ndarray:
+        chan_red = chan_red - cv2.copyMakeBorder(ref, 1, 1, 1, 1, cv2.BORDER_REFLECT)
+        bi_g = (chan_red[1:-1, 1:-1] + chan_red[1:-1, 2:]) / 2
+        bi_g2 = (chan_red[1:-1, 1:-1] + chan_red[2:, 1:-1]) / 2
+        bi_b = (bi_g + bi_g2) / 2
+        return rgbg_to_bayer(chan_red[1:-1, 1:-1], bi_g, bi_b, bi_g2)
 
-    rgb_h = np.dstack((r_h, g_h, b_h))
-    rgb_v = np.dstack((r_v, g_v, b_v))
+    def expand_blue(chan_blue : np.ndarray, ref : np.ndarray) -> np.ndarray:
+        chan_blue = chan_blue - cv2.copyMakeBorder(ref, 1, 1, 1, 1, cv2.BORDER_REFLECT)
+        bi_g = (chan_blue[0:-2, 1:-1] + chan_blue[1:-1, 1:-1]) / 2
+        bi_g2 = (chan_blue[1:-1, 0:-2] + chan_blue[1:-1, 1:-1]) / 2
+        bi_r = (bi_g + bi_g2) / 2
+        return rgbg_to_bayer(bi_r, bi_g, chan_blue[1:-1, 1:-1], bi_g2)
+
+    # TODO - Move more of this to Cython, this operation doubles runtime of AHD
+    r_h = expand_red(r, gh_r) + g_h
+    r_v = expand_red(r, gv_r) + g_v
+    b_h = expand_blue(b, gh_b) + g_h
+    b_v = expand_blue(b, gv_b) + g_v
+    
+    map_h = build_homogeneity_map(r_h, g_h, b_h, False)
+    map_v = build_homogeneity_map(r_v, g_v, b_v, True)
 
     # Blur the homogeneity maps to consider wider homogeneity when merging
     map_h = cv2.blur(map_h, (3,3))
     map_v = cv2.blur(map_v, (3,3))
+
+    rgb_h = np.dstack((r_h, g_h, b_h))
+    rgb_v = np.dstack((r_v, g_v, b_v))
 
     combination = (map_h < map_v).astype(np.float32)
     combination = np.reshape(combination, (combination.shape[0], combination.shape[1], 1))
 
     rgb_h *= combination
     rgb_v *= (1 - combination)
+    
+    debayered = rgb_h + rgb_v
 
+    # 3 iterations of postprocessing
     def postprocess_color(image_prev : np.ndarray) -> np.ndarray:
 
         def median(im : np.ndarray) -> np.ndarray:
@@ -146,9 +166,6 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
         b = median(b - g) + g
         g = (median(g - r) + median(g - b) + r + b) / 2
         return np.dstack((r,g,b))
-
-    # 3 iterations of postprocessing
-    debayered = rgb_h + rgb_v
 
     # White balance prior to postprocessing to reduce highlight shifting
     debayered[:,:,0] = debayered[:,:,0] * image.wb_coeff[0]
