@@ -76,8 +76,8 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     # Blend h, h_optimal is the optimal solution presented in paper. Produces no mazes but leaves aliased crosses instead
     #     h_fast is their power-of-two version. Smoother appearance but produces mazes
     # Blending them can improve the naturalness a bit
-    h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569])
-    h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25])
+    h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569], dtype=np.float32)
+    h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25], dtype=np.float32)
     ratio_optimal = 0.875
     h = (h_optimal * ratio_optimal) + (h_fast * (1 - ratio_optimal))
 
