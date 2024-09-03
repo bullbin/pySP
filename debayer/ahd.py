@@ -3,10 +3,11 @@ from typing import Optional, Union
 import cv2
 import numpy as np
 
-from .ahd_homogeneity_cython import build_map
+from ..base_types.image_base import RawDebayerData, RawRgbgData_BaseType
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize import cam_to_lin_srgb
-from ..base_types.image_base import RawRgbgData_BaseType, RawDebayerData
+from .ahd_homogeneity_cython import build_map
+from .gaussian import BayerPatternPosition, get_rgbg_kernel
 
 def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
@@ -76,9 +77,13 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     # Blend h, h_optimal is the optimal solution presented in paper. Produces no mazes but leaves aliased crosses instead
     #     h_fast is their power-of-two version. Smoother appearance but produces mazes
     # Blending them can improve the naturalness a bit
+
+    # Note - h_optimal is slightly less blurry but tints harder with false colors. h_fast is better in this regard.
+    #        Testing at 0.875 (old value) would reveal strong pink edge fringing caused entirely by these weights.
+    #        Do not set this value too high or you'll experience debugging hell
     h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569], dtype=np.float32)
     h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25], dtype=np.float32)
-    ratio_optimal = 0.875
+    ratio_optimal = 0.125
     h = (h_optimal * ratio_optimal) + (h_fast * (1 - ratio_optimal))
 
     # Artifacts can be created from hot pixel removal, this can reduce the appearance of them
@@ -111,27 +116,32 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     g_v = rgbg_to_bayer(gv_r, g1[1:-1, 1:-1], gv_b, g2[1:-1, 1:-1])
 
     # Reconstruct full resolution other channels
-    # Low pass filter is bilinear, like presented in paper
-    # Modern implementations use a Gaussian filter, this can be done later (try 5x5 Gaussian)
-    def expand_red(chan_red : np.ndarray, ref : np.ndarray) -> np.ndarray:
-        chan_red = chan_red - cv2.copyMakeBorder(ref, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-        bi_g = (chan_red[1:-1, 1:-1] + chan_red[1:-1, 2:]) / 2
-        bi_g2 = (chan_red[1:-1, 1:-1] + chan_red[2:, 1:-1]) / 2
-        bi_b = (bi_g + bi_g2) / 2
-        return rgbg_to_bayer(chan_red[1:-1, 1:-1], bi_g, bi_b, bi_g2)
+    # Paper uses bilinear filter for low-pass. Most current implementations use a Gaussian filter.
+    # Below is a photosite-aware implementation of cv2.pyrUp that performs Gaussian upsampling
+    #     without introducing plane decentering.
 
-    def expand_blue(chan_blue : np.ndarray, ref : np.ndarray) -> np.ndarray:
-        chan_blue = chan_blue - cv2.copyMakeBorder(ref, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-        bi_g = (chan_blue[0:-2, 1:-1] + chan_blue[1:-1, 1:-1]) / 2
-        bi_g2 = (chan_blue[1:-1, 0:-2] + chan_blue[1:-1, 1:-1]) / 2
-        bi_r = (bi_g + bi_g2) / 2
-        return rgbg_to_bayer(bi_r, bi_g, chan_blue[1:-1, 1:-1], bi_g2)
+    # We use cv2's default approximate 5x5 Gaussian. This is normalized to float internally so
+    #     doesn't actually speed anything up :)
+    cv2_default_gauss = np.array([[1, 4, 6, 4,1],
+                                  [4,16,24,16,4],
+                                  [6,24,36,24,6],
+                                  [4,16,24,16,4],
+                                  [1, 4, 6, 4,1]])
 
     # TODO - Move more of this to Cython, this operation doubles runtime of AHD
-    r_h = expand_red(r, gh_r) + g_h
-    r_v = expand_red(r, gv_r) + g_v
-    b_h = expand_blue(b, gh_b) + g_h
-    b_v = expand_blue(b, gv_b) + g_v
+    k_r, k_g, k_g2, k_b = get_rgbg_kernel(cv2_default_gauss, BayerPatternPosition.TOP_LEFT)
+
+    r_h = r[1:-1, 1:-1] - gh_r
+    r_h = rgbg_to_bayer(cv2.filter2D(r_h, -1, k_r), cv2.filter2D(r_h, -1, k_g), cv2.filter2D(r_h, -1, k_b), cv2.filter2D(r_h, -1, k_g2)) + g_h
+    r_v = r[1:-1, 1:-1] - gv_r
+    r_v = rgbg_to_bayer(cv2.filter2D(r_v, -1, k_r), cv2.filter2D(r_v, -1, k_g), cv2.filter2D(r_v, -1, k_b), cv2.filter2D(r_v, -1, k_g2)) + g_v
+
+    k_r, k_g, k_g2, k_b = get_rgbg_kernel(cv2_default_gauss, BayerPatternPosition.BOTTOM_RIGHT)
+
+    b_h = b[1:-1, 1:-1] - gh_b
+    b_h = rgbg_to_bayer(cv2.filter2D(b_h, -1, k_r), cv2.filter2D(b_h, -1, k_g), cv2.filter2D(b_h, -1, k_b), cv2.filter2D(b_h, -1, k_g2)) + g_h
+    b_v = b[1:-1, 1:-1] - gv_b
+    b_v = rgbg_to_bayer(cv2.filter2D(b_v, -1, k_r), cv2.filter2D(b_v, -1, k_g), cv2.filter2D(b_v, -1, k_b), cv2.filter2D(b_v, -1, k_g2)) + g_v
     
     map_h = build_homogeneity_map(r_h, g_h, b_h, False)
     map_v = build_homogeneity_map(r_v, g_v, b_v, True)
@@ -151,7 +161,7 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     
     debayered = rgb_h + rgb_v
 
-    # 3 iterations of postprocessing
+    # 3 iterations of postprocessing used in paper. Can kill small details but is effective at suppressing chroma errors
     def postprocess_color(image_prev : np.ndarray) -> np.ndarray:
 
         def median(im : np.ndarray) -> np.ndarray:
