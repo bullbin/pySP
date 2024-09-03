@@ -1,1 +1,1 @@
-from .chan_distortion_corr import get_opcode_3_block, apply_opcode_3_warp
+from .chan_distortion_corr import get_opcode_3_block, apply_opcode_3_warp, stack_warp_prior

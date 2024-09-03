@@ -16,7 +16,7 @@ ctypedef np.float32_t DTYPE_t
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void compute_table(DTYPE_t[:,:,:] table, float kr0, float kr1, float kr2, float kr3, float kt0, float kt1,
-                        float m, float cam_center_x, float cam_center_y, int width, int height) noexcept nogil:
+                        float m, float cam_center_x, float cam_center_y, int width, int height, float scale) noexcept nogil:
     cdef float dx, dy, r, f, dxr, dyr, dxt, dyt, xp, yp
     cdef int x, y
 
@@ -36,13 +36,13 @@ cdef void compute_table(DTYPE_t[:,:,:] table, float kr0, float kr1, float kr2, f
 
                 xp = cam_center_x + m * (dxr + dxt)
                 yp = cam_center_y + m * (dyr + dyt)
-                table[y,x,0] = xp
-                table[y,x,1] = yp
+                table[y,x,0] = x + (xp - x) * scale
+                table[y,x,1] = y + (yp - y) * scale
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void offset_table(DTYPE_t[:,:,:] seed, DTYPE_t[:,:,:] table, float kr0, float kr1, float kr2, float kr3, float kt0, float kt1,
-                        float m, float cam_center_x, float cam_center_y, int width, int height) noexcept nogil:
+                        float m, float cam_center_x, float cam_center_y, int width, int height, float scale) noexcept nogil:
     cdef float dx, dy, r, f, dxr, dyr, dxt, dyt, xp, yp
     cdef int x, y
 
@@ -61,11 +61,11 @@ cdef void offset_table(DTYPE_t[:,:,:] seed, DTYPE_t[:,:,:] table, float kr0, flo
 
                 xp = cam_center_x + m * (dxr + dxt)
                 yp = cam_center_y + m * (dyr + dyt)
-                table[y,x,0] = xp
-                table[y,x,1] = yp
+                table[y,x,0] = seed[y,x,0] + (xp - seed[y,x,0]) * scale
+                table[y,x,1] = seed[y,x,1] + (yp - seed[y,x,1]) * scale
 
 cpdef np.ndarray[DTYPE_t, ndim=3] compute_remapping_table(float kr0, float kr1, float kr2, float kr3, float kt0, float kt1,
-                 unsigned int width, unsigned int height, float cam_center_norm_x, float cam_center_norm_y):
+                 unsigned int width, unsigned int height, float cam_center_norm_x, float cam_center_norm_y, float scale):
     
     cdef np.ndarray[DTYPE_t, ndim=3] table
     table = np.zeros([height, width, 2], dtype=DTYPE)
@@ -76,12 +76,12 @@ cpdef np.ndarray[DTYPE_t, ndim=3] compute_remapping_table(float kr0, float kr1, 
     cdef float max_dist_y = max(abs(-cam_center_y), abs(height - 1 - cam_center_y))
     cdef float m = np.sqrt(max_dist_x ** 2 + max_dist_y ** 2)
 
-    compute_table(table, kr0, kr1, kr2, kr3, kt0, kt1, m, cam_center_x, cam_center_y, width, height)
+    compute_table(table, kr0, kr1, kr2, kr3, kt0, kt1, m, cam_center_x, cam_center_y, width, height, scale)
     return table
 
 cpdef np.ndarray[DTYPE_t, ndim=3] compute_offset_remapping_table(np.ndarray[DTYPE_t, ndim=3] seed, float kr0,
                  float kr1, float kr2, float kr3, float kt0, float kt1, unsigned int width, unsigned int height,
-                 float cam_center_norm_x, float cam_center_norm_y):
+                 float cam_center_norm_x, float cam_center_norm_y, float scale):
     
     cdef np.ndarray[DTYPE_t, ndim=3] table
     table = np.zeros([height, width, 2], dtype=DTYPE)
@@ -92,5 +92,5 @@ cpdef np.ndarray[DTYPE_t, ndim=3] compute_offset_remapping_table(np.ndarray[DTYP
     cdef float max_dist_y = max(abs(-cam_center_y), abs(height - 1 - cam_center_y))
     cdef float m = np.sqrt(max_dist_x ** 2 + max_dist_y ** 2)
 
-    offset_table(seed, table, kr0, kr1, kr2, kr3, kt0, kt1, m, cam_center_x, cam_center_y, width, height)
+    offset_table(seed, table, kr0, kr1, kr2, kr3, kt0, kt1, m, cam_center_x, cam_center_y, width, height, scale)
     return table
