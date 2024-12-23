@@ -2,22 +2,21 @@ import numpy as np
 
 # TODO - Test using full set, currently only tested with v (but is correct)
 
-def get_remap_coords(chan : np.ndarray, poly3_b : float, poly3_c : float, poly3_v : float, max_iterations : int = 16, stop_epsilon : float = 0.00001) -> np.ndarray:
+def get_remap_coords(chan : np.ndarray, poly3_b : float, poly3_c : float, poly3_v : float, max_iterations : int = 8, stop_epsilon : float = 0.00001) -> np.ndarray:
     """Compute remapping coordinates for a channel using the Lensfun Poly3 model. This can be used to effectively remove chromatic abberation after
     demosaicing.
 
     Model follows implementation as according to https://lensfun.github.io/calibration-tutorial/lens-distortion.html. The lens polynomial is solved
     using Newton's method. The output uses the same pixel centering and alignment as OpenCV so is suitable for usage with cv2.remap.
 
-    Coefficients can be computed using hugin but a faster way to estimate them is to use darktable's TCA override. The provided coefficients are for
-    v and can be converted as v = 1 + (1 - <darktable_coeff>) with b = 0, c = 0.
+    Coefficients can be computed using hugin but a faster way to estimate them is to use darktable's TCA override to guess coefficients for v.
 
     Args:
         chan (np.ndarray): Input channel. Maximal radius and bounds will be computed using this shape.
         poly3_b (float): Poly3 B coefficient
         poly3_c (float): Poly3 C coefficient
         poly3_v (float): Poly3 V coefficient
-        max_iterations (int, optional): Maximum iterations for polynomial solver. Higher increases potential accuracy. Defaults to 16.
+        max_iterations (int, optional): Maximum iterations for polynomial solver. Higher increases potential accuracy. Defaults to 8.
         stop_epsilon (float, optional): Stop solver early if improvement is below this threshold. Lower improves precision. Defaults to 0.00001.
 
     Returns:
@@ -36,8 +35,10 @@ def get_remap_coords(chan : np.ndarray, poly3_b : float, poly3_c : float, poly3_
         r_square = radius ** 2
         return 3 * b * r_square + 2 * c * radius + v
 
-    p_height, p_width = chan.shape[0] - 1, chan.shape[1] - 1
-    c_x, c_y = p_width / 2, p_height / 2
+    # Lensfun uses normalized radius
+    # Source - https://lensfun.github.io/manual/v0.3.1/group__Lens.html
+    c_x, c_y = (chan.shape[0] - 1) / 2, (chan.shape[1] - 1) / 2
+    max_radius = np.sqrt(c_x ** 2 + c_y ** 2, dtype=np.float32)
     
     arr_x = np.zeros(shape=(chan.shape[0], chan.shape[1]), dtype=np.float32)
     arr_y = np.zeros(shape=(chan.shape[0], chan.shape[1]), dtype=np.float32)
@@ -46,8 +47,7 @@ def get_remap_coords(chan : np.ndarray, poly3_b : float, poly3_c : float, poly3_
     for y in range(chan.shape[0]):
         arr_y[y,:] = y - c_y
     
-    arr_rad_dist = np.sqrt(arr_x ** 2 + arr_y ** 2)
-    arr_ang = np.arctan2(arr_y, arr_x)
+    arr_rad_dist = np.sqrt(arr_x ** 2 + arr_y ** 2) / max_radius
     arr_rad_undist = np.zeros_like(arr_rad_dist)
 
     err = np.inf
@@ -64,7 +64,9 @@ def get_remap_coords(chan : np.ndarray, poly3_b : float, poly3_c : float, poly3_
             break
         last_err = err
         i += 1
-    
-    arr_new_x = arr_rad_undist * np.cos(arr_ang) + c_x
-    arr_new_y = arr_rad_undist * np.sin(arr_ang) + c_y
+
+    # Using scaling ratio instead of actual polar coords matches other software closer
+    arr_ratio = arr_rad_dist / arr_rad_undist
+    arr_new_x = arr_x * arr_ratio + c_x
+    arr_new_y = arr_y * arr_ratio + c_y
     return np.dstack((arr_new_x, arr_new_y))

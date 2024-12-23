@@ -48,6 +48,7 @@ class RawDebayerData():
             self._wb_normalized = False
     
     def to_lin_srgb(self):
+        self.wb_apply()
         return cam_to_lin_srgb(self.image, self.mat_xyz)
 
 class RawRgbgData_BaseType():

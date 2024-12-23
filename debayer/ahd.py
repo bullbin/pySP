@@ -83,20 +83,8 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     #        Do not set this value too high or you'll experience debugging hell
     h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569], dtype=np.float32)
     h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25], dtype=np.float32)
-    ratio_optimal = 0.125
+    ratio_optimal = 0.0
     h = (h_optimal * ratio_optimal) + (h_fast * (1 - ratio_optimal))
-
-    # Artifacts can be created from hot pixel removal, this can reduce the appearance of them
-    def deartifact(chan : np.ndarray, lim_chan_0 : np.ndarray, lim_chan_1 : np.ndarray) -> np.ndarray:
-        # TODO - Try median
-        if deartifact:
-            stacked = np.dstack((lim_chan_0, lim_chan_1))
-            min_chan = np.min(stacked, axis=2)
-            max_chan = np.max(stacked, axis=2)
-            average = (min_chan + max_chan) / 2
-            return np.where(np.logical_or(chan < min_chan, chan > max_chan), average, chan)
-        
-        return chan
 
     # Interpolate green channel from red
     gh_r = (r[1:-1, :-2] * h[0]) + (g1[1:-1, :-2] * h[1]) + (r[1:-1, 1:-1] * h[2]) + (g1[1:-1, 1:-1] * h[3]) + (r[1:-1, 2:] * h[4])
@@ -105,11 +93,6 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
     # Interpolate green channel from blue
     gh_b = (b[1:-1, :-2] * h[0]) + (g2[1:-1, 1:-1] * h[1]) + (b[1:-1, 1:-1] * h[2]) + (g2[1:-1, 2:] * h[3]) + (b[1:-1, 2:] * h[4])
     gv_b = (b[:-2, 1:-1] * h[0]) + (g1[1:-1, 1:-1] * h[1]) + (b[1:-1, 1:-1] * h[2]) + (g1[2:, 1:-1] * h[3]) + (b[2:, 1:-1] * h[4])
-
-    gh_r = deartifact(gh_r, g1[1:-1, :-2], g1[1:-1, 1:-1])
-    gv_r = deartifact(gv_r, g2[:-2, 1:-1], g2[1:-1, 1:-1])
-    gh_b = deartifact(gh_b, g2[1:-1, 1:-1], g2[1:-1, 2:])
-    gv_b = deartifact(gv_b, g1[1:-1, 1:-1], g1[2:, 1:-1])
 
     # Reconstruct full resolution green channels
     g_h = rgbg_to_bayer(gh_r, g1[1:-1, 1:-1], gh_b, g2[1:-1, 1:-1])
@@ -122,27 +105,43 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
 
     # We use cv2's default approximate 5x5 Gaussian. This is normalized to float internally so
     #     doesn't actually speed anything up :)
+    # This is an approximation of a 5x5 Gaussian kernel with sigma 1.0
     cv2_default_gauss = np.array([[1, 4, 6, 4,1],
                                   [4,16,24,16,4],
                                   [6,24,36,24,6],
                                   [4,16,24,16,4],
                                   [1, 4, 6, 4,1]])
-
-    # TODO - Move more of this to Cython, this operation doubles runtime of AHD
+    
+    # When using photosite operations, the kernel acts more like a 3x3 kernel.
+    # TODO - There's a bug with aligment (or scaling) that causes worsening of friging when using original channels. This is unintended,
+    #            the paper just adds the original green channel back which should work. It doesn't in this implementation for some reason.
+    #            Demosaicing is broadly matched with dcraw when using low-pass for r,b but this shouldn't happen since we want high frequency
+    #            detail. We can readd high frequency by cutting it from original green channels and adding it back to upscaled green.
+    #        There is probably some error with the Gaussian upsampling function but this works.......
+    #        I have tried bilinear kernels as well and they don't do as good a job. There's probably some bigger issue here :)
+    delta_gh_hf = g_h - cv2.GaussianBlur(g_h, (3,3), 1.0)
+    delta_gv_vf = g_v - cv2.GaussianBlur(g_v, (3,3), 1.0)
+    
     k_r, k_g, k_g2, k_b = get_rgbg_kernel(cv2_default_gauss, BayerPatternPosition.TOP_LEFT)
 
+    hg_r = rgbg_to_bayer(cv2.filter2D(gv_r, -1, k_r), cv2.filter2D(gv_r, -1, k_g), cv2.filter2D(gv_r, -1, k_b), cv2.filter2D(gv_r, -1, k_g2)) + delta_gh_hf
+    vg_r = rgbg_to_bayer(cv2.filter2D(gh_r, -1, k_r), cv2.filter2D(gh_r, -1, k_g), cv2.filter2D(gh_r, -1, k_b), cv2.filter2D(gh_r, -1, k_g2)) + delta_gv_vf
+
     r_h = r[1:-1, 1:-1] - gh_r
-    r_h = rgbg_to_bayer(cv2.filter2D(r_h, -1, k_r), cv2.filter2D(r_h, -1, k_g), cv2.filter2D(r_h, -1, k_b), cv2.filter2D(r_h, -1, k_g2)) + g_h
+    r_h = rgbg_to_bayer(cv2.filter2D(r_h, -1, k_r), cv2.filter2D(r_h, -1, k_g), cv2.filter2D(r_h, -1, k_b), cv2.filter2D(r_h, -1, k_g2)) + hg_r
     r_v = r[1:-1, 1:-1] - gv_r
-    r_v = rgbg_to_bayer(cv2.filter2D(r_v, -1, k_r), cv2.filter2D(r_v, -1, k_g), cv2.filter2D(r_v, -1, k_b), cv2.filter2D(r_v, -1, k_g2)) + g_v
+    r_v = rgbg_to_bayer(cv2.filter2D(r_v, -1, k_r), cv2.filter2D(r_v, -1, k_g), cv2.filter2D(r_v, -1, k_b), cv2.filter2D(r_v, -1, k_g2)) + vg_r 
 
     k_r, k_g, k_g2, k_b = get_rgbg_kernel(cv2_default_gauss, BayerPatternPosition.BOTTOM_RIGHT)
 
+    hg_b = rgbg_to_bayer(cv2.filter2D(gh_b, -1, k_r), cv2.filter2D(gh_b, -1, k_g), cv2.filter2D(gh_b, -1, k_b), cv2.filter2D(gh_b, -1, k_g2)) + delta_gh_hf
+    vg_b = rgbg_to_bayer(cv2.filter2D(gv_b, -1, k_r), cv2.filter2D(gv_b, -1, k_g), cv2.filter2D(gv_b, -1, k_b), cv2.filter2D(gv_b, -1, k_g2)) + delta_gv_vf
+
     b_h = b[1:-1, 1:-1] - gh_b
-    b_h = rgbg_to_bayer(cv2.filter2D(b_h, -1, k_r), cv2.filter2D(b_h, -1, k_g), cv2.filter2D(b_h, -1, k_b), cv2.filter2D(b_h, -1, k_g2)) + g_h
+    b_h = rgbg_to_bayer(cv2.filter2D(b_h, -1, k_r), cv2.filter2D(b_h, -1, k_g), cv2.filter2D(b_h, -1, k_b), cv2.filter2D(b_h, -1, k_g2)) + hg_b
     b_v = b[1:-1, 1:-1] - gv_b
-    b_v = rgbg_to_bayer(cv2.filter2D(b_v, -1, k_r), cv2.filter2D(b_v, -1, k_g), cv2.filter2D(b_v, -1, k_b), cv2.filter2D(b_v, -1, k_g2)) + g_v
-    
+    b_v = rgbg_to_bayer(cv2.filter2D(b_v, -1, k_r), cv2.filter2D(b_v, -1, k_g), cv2.filter2D(b_v, -1, k_b), cv2.filter2D(b_v, -1, k_g2)) + vg_b
+
     map_h = build_homogeneity_map(r_h, g_h, b_h, False)
     map_v = build_homogeneity_map(r_v, g_v, b_v, True)
 
