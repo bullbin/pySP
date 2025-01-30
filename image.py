@@ -2,6 +2,8 @@ from __future__ import annotations
 import numpy as np
 import exifread, rawpy
 from typing import Optional, Union
+
+from pySP.wb_cct.cam_wb import get_optimal_camera_mat_from_coords
 from .normalization import bayer_normalize
 from .debayer import debayer_ahd, debayer_fast
 from .base_types.image_base import RawRgbgData_BaseType, RawDebayerData
@@ -115,9 +117,16 @@ class RawRgbgDataFromRaw(RawRgbgData):
             with rawpy.imread(reader) as in_dng:
                 chan_sat = in_dng.camera_white_level_per_channel
                 chan_black = in_dng.black_level_per_channel
-                self.wb_coeff = in_dng.camera_whitebalance
-                self.mat_xyz = in_dng.rgb_xyz_matrix
+                self.wb_coeff = np.array(in_dng.camera_whitebalance[:3])
                 self.bayer_data_scaled = bayer_normalize(in_dng.raw_image, chan_black, chan_sat)
+            
+            if type(filename_or_data) == str:
+                with open(filename_or_data, 'rb') as raw:
+                    tags = exifread.process_file(raw)
+            else:
+                tags = exifread.process_file(BytesIO(filename_or_data))
+            
+            self.mat_xyz = get_optimal_camera_mat_from_coords(tags, self.wb_coeff[1] / self.wb_coeff)
             
             self.current_ev = compute_ev_from_exif(filename_or_data)
             if self.current_ev != np.inf:
@@ -129,6 +138,7 @@ class RawRgbgDataFromRaw(RawRgbgData):
     def is_valid(self) -> bool:
         return self.__is_valid
 
+# TODO - This is due to be removed
 class RawDebayerDataFromRaw(RawDebayerData):
     def __init__(self, filename_or_data : Union[str, bytes]):
         """Class for storing RGB demosaiced data from a raw file.
@@ -150,7 +160,6 @@ class RawDebayerDataFromRaw(RawDebayerData):
                 reader = BytesIO(filename_or_data)
 
             with rawpy.imread(reader) as in_dng:
-                self.mat_xyz = in_dng.rgb_xyz_matrix
                 self._wb_coeff = in_dng.daylight_whitebalance
                 self.image = in_dng.postprocess(demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
                                                 fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Full,
@@ -162,10 +171,17 @@ class RawDebayerDataFromRaw(RawDebayerData):
                                                 no_auto_bright=True,
                                                 highlight_mode=rawpy.HighlightMode.Clip)
             
+            if type(filename_or_data) == str:
+                with open(filename_or_data, 'rb') as raw:
+                    tags = exifread.process_file(raw)
+            else:
+                tags = exifread.process_file(BytesIO(filename_or_data))
+            
+            self.mat_xyz = get_optimal_camera_mat_from_coords(tags, self._wb_coeff)
             self.image = self.image.astype(np.float32) / ((2 ** 16) - 1)
             self.current_ev = compute_ev_from_exif(filename_or_data)
 
-        except (rawpy.LibRawError, FileNotFoundError, IOError) as e:
+        except (rawpy.LibRawError, FileNotFoundError, IOError, OSError) as e:
             print(e)
     
         self._wb_applied = True

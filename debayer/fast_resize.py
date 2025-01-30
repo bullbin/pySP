@@ -5,6 +5,7 @@ import numpy as np
 
 from pySP.bayer_chan_mixer import bayer_to_rgbg
 from pySP.base_types.image_base import RawDebayerData, RawRgbgData_BaseType
+from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
 
 def debayer(image : RawRgbgData_BaseType) -> Optional[RawDebayerData]:
     """Debayer by resizing channels to fit original resolution.
@@ -42,6 +43,6 @@ def debayer(image : RawRgbgData_BaseType) -> Optional[RawDebayerData]:
         return cv2.resize(rgb, (image.bayer_data_scaled.shape[1], image.bayer_data_scaled.shape[0]))
 
     output = RawDebayerData(debayer_nearest(), np.copy(image.wb_coeff), wb_norm=False)
-    output.mat_xyz = np.copy(image.mat_xyz)
+    output.mat_xyz = MatXyzToCamera(image.mat_xyz.mat, image.mat_xyz.xyz)
     output.current_ev = image.current_ev
     return output

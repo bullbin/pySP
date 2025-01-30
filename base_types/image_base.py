@@ -3,6 +3,7 @@ import numpy as np
 
 from pySP.colorize import cam_to_lin_srgb
 from pySP.const import QualityDemosaic
+from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
 
 class RawDebayerData():
     def __init__(self, image : np.ndarray, wb_coeff : np.ndarray, wb_norm : bool = False):
@@ -19,7 +20,7 @@ class RawDebayerData():
         self._wb_applied        : bool = True
         self._wb_normalized     : bool = wb_norm
         
-        self.mat_xyz            : np.ndarray = None
+        self.mat_xyz            : MatXyzToCamera = None
         self.current_ev         : float = np.inf
         
     def is_valid(self) -> bool:
@@ -28,7 +29,7 @@ class RawDebayerData():
         Returns:
             bool: True if image is valid; False otherwise.
         """
-        return type(self.image) != type(None) and type(self._wb_coeff) != type(None) and type(self.mat_xyz) != type(None) and self.current_ev != np.inf
+        return type(self.image) != type(None) and type(self._wb_coeff) != type(None) and type(self.mat_xyz) != type(MatXyzToCamera) and self.current_ev != np.inf
     
     def wb_apply(self):
         """Apply white balance co-efficients if not already applied.
@@ -58,7 +59,7 @@ class RawRgbgData_BaseType():
 
         self.bayer_data_scaled  : np.ndarray = None
         self.wb_coeff           : np.ndarray = None
-        self.mat_xyz            : np.ndarray = None
+        self.mat_xyz            : MatXyzToCamera = None
         self.current_ev         : float      = np.inf
         self.lim_sat            : float      = 1.0
         self.__is_hdr           : bool       = False

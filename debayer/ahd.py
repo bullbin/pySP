@@ -3,6 +3,8 @@ from typing import Optional, Union
 import cv2
 import numpy as np
 
+from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
+
 from ..base_types.image_base import RawDebayerData, RawRgbgData_BaseType
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize import cam_to_lin_srgb
@@ -186,6 +188,6 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
         debayered = postprocess_color(debayered)
 
     debayered = RawDebayerData(debayered, np.copy(image.wb_coeff), wb_norm=False)
-    debayered.mat_xyz = np.copy(image.mat_xyz)
+    debayered.mat_xyz = MatXyzToCamera(image.mat_xyz.mat, image.mat_xyz.xyz)
     debayered.current_ev = image.current_ev
     return debayered
