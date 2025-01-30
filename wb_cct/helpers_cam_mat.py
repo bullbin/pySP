@@ -20,7 +20,7 @@ class ChromacityMat():
     def __init__(self, mat : np.ndarray, xyz : np.ndarray):
         self.mat = np.copy(mat)
         self.mat.setflags(write=False)
-        self.xyz = xyz
+        self.xyz = np.copy(xyz)
         self.xyz.setflags(write=False)
         
 class MatXyzToCamera(ChromacityMat):

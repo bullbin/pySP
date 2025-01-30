@@ -1,1 +1,1 @@
-from .cam_wb import get_optimal_camera_mat_from_as_shot, get_optimal_camera_mat_from_cct_duv, get_optimal_camera_mat_from_coords
+from .cam_wb import CameraWhiteBalanceControllerFromExif

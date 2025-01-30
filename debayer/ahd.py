@@ -11,7 +11,7 @@ from ..colorize import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
 from .gaussian import BayerPatternPosition, get_rgbg_kernel
 
-def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postprocess_stages : int = 1) -> Optional[RawDebayerData]:
+def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
     This is slow but produces high-quality results with reduced zippering and smooth graduation.
@@ -23,7 +23,6 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
 
     Args:
         image (RawRgbgData_BaseType): Bayer image with RGBG pattern.
-        deartifact (bool, optional): Restrict interpolation to within surrounding channels. Defaults to True.
         postprocess (bool, optional): Reduce color bleeding. Defaults to True.
 
     Returns:
@@ -43,9 +42,10 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
         # Use camera matrix to convert internal to CIELAB
         # TODO - Can just use XYZ values directly
         # TODO - Don't know what OpenCV is doing to these values. Colorspace? Gamma correction?
-        im_rgb = cam_to_lin_srgb(np.dstack((r * image.wb_coeff[0],
-                                            g * image.wb_coeff[1],
-                                            b * image.wb_coeff[2])), image.mat_xyz, clip_highlights=False)
+        wb_coeff = image.cam_wb.get_reciprocal_multipliers()
+        im_rgb = cam_to_lin_srgb(np.dstack((r * wb_coeff[0],
+                                            g * wb_coeff[1],
+                                            b * wb_coeff[2])), image.cam_wb.get_matrix(), clip_highlights=False)
         
         if image.get_hdr():
             # If the image is HDR, we can't formulate a CIELAB representation
@@ -179,15 +179,16 @@ def debayer(image : Union[RawRgbgData_BaseType], deartifact : bool = True, postp
         return np.dstack((r,g,b))
 
     # White balance prior to postprocessing to reduce highlight shifting
-    debayered[:,:,0] = debayered[:,:,0] * image.wb_coeff[0]
-    debayered[:,:,1] = debayered[:,:,1] * image.wb_coeff[1]
-    debayered[:,:,2] = debayered[:,:,2] * image.wb_coeff[2]
+    wb_coeff = image.cam_wb.get_reciprocal_multipliers()
+    debayered[:,:,0] = debayered[:,:,0] * wb_coeff[0]
+    debayered[:,:,1] = debayered[:,:,1] * wb_coeff[1]
+    debayered[:,:,2] = debayered[:,:,2] * wb_coeff[2]
 
     postprocess_stages = max(postprocess_stages, 0)
     for _i in range(postprocess_stages):
         debayered = postprocess_color(debayered)
 
-    debayered = RawDebayerData(debayered, np.copy(image.wb_coeff), wb_norm=False)
-    debayered.mat_xyz = MatXyzToCamera(image.mat_xyz.mat, image.mat_xyz.xyz)
+    debayered = RawDebayerData(debayered, wb_coeff, wb_norm=False)
+    debayered.mat_xyz = image.cam_wb.get_matrix()
     debayered.current_ev = image.current_ev
     return debayered

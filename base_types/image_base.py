@@ -3,6 +3,7 @@ import numpy as np
 
 from pySP.colorize import cam_to_lin_srgb
 from pySP.const import QualityDemosaic
+from pySP.wb_cct.cam_wb import CameraWhiteBalanceController
 from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
 
 class RawDebayerData():
@@ -58,8 +59,7 @@ class RawRgbgData_BaseType():
         """
 
         self.bayer_data_scaled  : np.ndarray = None
-        self.wb_coeff           : np.ndarray = None
-        self.mat_xyz            : MatXyzToCamera = None
+        self.cam_wb             : CameraWhiteBalanceController = None
         self.current_ev         : float      = np.inf
         self.lim_sat            : float      = 1.0
         self.__is_hdr           : bool       = False
@@ -87,7 +87,7 @@ class RawRgbgData_BaseType():
         Returns:
             bool: True if image is valid; False otherwise.
         """
-        return type(self.bayer_data_scaled) != type(None) and type(self.wb_coeff) != type(None) and type(self.mat_xyz) != type(None) and self.current_ev != np.inf
+        return type(self.bayer_data_scaled) != type(None) and type(self.cam_wb) != type(None) and self.current_ev != np.inf
 
     def debayer(self, quality : QualityDemosaic, postprocess_steps : int = 1) -> Optional[RawDebayerData]:
         """Debayer this image. Override this method. This is intentionally unimplemented for the base class.

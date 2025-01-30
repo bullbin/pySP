@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import colour
 import numpy as np
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
 from pySP.wb_cct.helpers_exif import exif_get_as_shot_neutral, exif_get_color_mat_sources
@@ -42,8 +44,6 @@ from pySP.wb_cct.helpers_exif import exif_get_as_shot_neutral, exif_get_color_ma
 #        system though because we have to ignore the mired blending suggested
 #        in DNG spec to get same results as other software.
 
-# TODO - Test the matrices this produces
-
 def get_ideal_duv(temperature : float) -> float:
     """Get a desirable dUV for a given CCT based on the Planckian locus with adjustments after 4000K to D-series illuminants.
 
@@ -60,155 +60,192 @@ def get_ideal_duv(temperature : float) -> float:
                     #        searching git issues will find reports about this in other software too
     return colour.temperature.uv_to_CCT_Ohno2013(colour.xy_to_UCS_uv(colour.temperature.CCT_to_xy_CIE_D(temperature)))[1]
 
-def get_optimal_camera_mat_from_as_shot(tags : Dict[str, Any]) -> Optional[Tuple[MatXyzToCamera, float]]:
-    """Interpolate ColorMatrix calibrations to find the optimal matrix under the stored neutral point.
+class CameraWhiteBalanceController():
+    def __init__(self, mats : List[MatXyzToCamera], initial_ref_white : np.ndarray):
+        """Create a white balance controller for a camera profile.
 
-    Args:
-        tags (Dict[str, Any]): Tags dictionary as held by exifread.
+        Args:
+            mats (List[MatXyzToCamera]): Camera XYZ calibration profiles. Must have at least 1.
+            initial_ref_white (np.ndarray): Initial reference white for pre-optimization.
+        """
 
-    Returns:
-        Optional[Tuple[MatXyzToCamera, float]]: Optimal XYZ to camera matrix (and illuminant). None if no valid ColorMatrix definitions were in the DNG or there is no AsShotNeutral tag.
-    """
+        assert len(mats) > 1
 
-    try:
-        multi_cam_wb = exif_get_as_shot_neutral(tags)
-    except:
-        return None
-    
-    return get_optimal_camera_mat_from_coords(tags, multi_cam_wb)
-    
-def get_optimal_camera_mat_from_coords(tags : Dict[str, Any], cam_neutral : np.ndarray, max_iters : int = 30, stop_epsilon : float = 0.000001) -> Optional[MatXyzToCamera]:
-    """Interpolate ColorMatrix calibrations to find the optimal matrix under a provided camera neutral point.
+        self.__mats = mats
+        self.__optimal_multipliers = np.copy(initial_ref_white)
+        self.__optimal_mat : MatXyzToCamera = None
 
-    This algorithm is iterative but for most values will return one of the preset calibrations. It works by finding the matrix that minimizes
-    the tint from an ideal curve assuming neutral is an approximate illuminant. Because daylight illuminants are typically preferred and have
-    a different tinting profile than other illuminants (like A), usually the returned matrix is close to (or exactly) one of the D-series
-    transformation presets.
+        self.update_by_reference(initial_ref_white)
 
-    Args:
-        tags (Dict[str, Any]): Tags dictionary as held by exifread.
-        cam_neutral (np.ndarray): Camera neutral point in reference (sensor) space [0,1]. Do not normalize to G' = 1.0.
-        max_iters (int, optional): Maximum iterations before stopping. Defaults to 30.
-        stop_epsilon (float, optional): Minimum step size before assumed converged. Defaults to 0.000001.
+    def update_by_temperature(self, cct : float, duv : Optional[int] = None, override_blend : Optional[float] = None):
+        """Interpolate ColorMatrix calibrations to update the optimal matrix and neutral point assuming a new scene illuminant.
 
-    Returns:
-        Optional[MatXyzToCamera]: Optimal XYZ to camera matrix (and illuminant). None if no valid ColorMatrix definitions were in the DNG.
-    """
+        Args:
+            cct (float): Target color temperature.
+            duv (Optional[int], optional): Target delta from Planckian locus. Defaults to an idealized curve which leans close to D-series above 4000K and blackbody below. Defaults to None.
+            override_blend (Optional[float], optional): Blend factor override. 0 uses closest CCT, 1 uses furthest. Defaults to None, which blends using mired. Software typically overrides this to use closest.
+        """
 
-    assert max_iters > 1
-
-    mats = exif_get_color_mat_sources(tags)
-    if len(mats) == 0:
-        return None
-    
-    if len(mats) == 1:
-        return MatXyzToCamera(np.copy(mats[0].mat), np.matmul(np.linalg.inv(mats[0].mat), cam_neutral))
-    
-    mat_k = []
-    for mat in mats:
-        cct_and_tint = colour.temperature.XYZ_to_CCT_Ohno2013(mat.xyz)
-        mat_k.append(cct_and_tint[0])
-    
-    mats = [x for _, x in sorted(zip(mat_k, mats))] # Sort mats by CCT
-    
-    mat_t = [colour.temperature.XYZ_to_CCT_Ohno2013(np.matmul(np.linalg.inv(mat.mat), cam_neutral))[1] for mat in mats]
-    mat_t = [abs(get_ideal_duv(k) - x) for x,k in zip(mat_t, mat_k)]
-
-    idx_lowest = [x for _, x in sorted(zip(mat_t, [y for y in range(len(mats))]))]
-
-    if abs(idx_lowest[0] - idx_lowest[1]) == 1:
-        mat_0 = mats[idx_lowest[0]]
-        mat_1 = mats[idx_lowest[1]]
-    else:
-        mat_0 = mats[idx_lowest[0]]
-        return MatXyzToCamera(np.copy(mat_0.mat), np.matmul(np.linalg.inv(mat_0.mat), cam_neutral))
-
-    # Solve blend factor for minimum error alongside two matrices
-    best_xyz = np.matmul(np.linalg.inv(mat_0.mat), cam_neutral)
-
-    best = min(mat_t)
-    best_bf = 0.0
-    worst_bf = 1.0
-
-    current = float("inf")
-
-    i = 0
-    while i < max_iters and abs(best_bf - worst_bf) > stop_epsilon:
-        current = (worst_bf + best_bf) / 2
-        current_xyz = np.matmul(np.linalg.inv(mat_0.interpolate(mat_1, current)), cam_neutral)
-        cct_and_tint = colour.temperature.XYZ_to_CCT_Ohno2013(current_xyz)
-        tint = abs(get_ideal_duv(cct_and_tint[0]) - cct_and_tint[1])
+        mat_k = [colour.temperature.XYZ_to_CCT_Ohno2013(mat.xyz)[0] for mat in self.__mats]
+        mats_by_k = [x for _, x in sorted(zip(mat_k, self.__mats))]                             # Sort mats by temperature
         
-        print(current)
+        mat_k.sort()
 
-        if tint <= best:
-            best = tint
-            best_xyz = current_xyz
-            best_bf = current
+        if duv == None:
+            # Tint is usually computed for a given temperature. This is because we typically imagine temperature as relating
+            #     to D-series illuminants which simulate daylight.
+            # D series is tinted away from the Planckian locus, so compute a tint for the D-series illuminant.
+            # If no illuminant is available, match to Planckian instead.
+
+            duv = get_ideal_duv(cct)
+
+        targ_xyz = colour.temperature.CCT_to_XYZ_Ohno2013(np.array([cct,duv]))
+
+        if cct <= mat_k[0]:
+            return np.matmul(mats_by_k[0].mat, targ_xyz)
+        if cct >= mat_k[-1]:
+            return np.matmul(mats_by_k[-1].mat, targ_xyz)
+        
+        # Interpolate closest matrices by mired
+        mat_k.append(cct)
+        mat_k.sort()
+
+        idx_0 = mat_k.index(cct) - 1
+        idx_1 = idx_0 + 1
+
+        mat_k.pop(idx_1)
+
+        mat_0 = mats_by_k[idx_0]
+        mat_1 = mats_by_k[idx_1]
+
+        if override_blend == None:
+            mired_0 = colour.temperature.CCT_to_mired(mat_k[idx_0])
+            mired_1 = colour.temperature.CCT_to_mired(mat_k[idx_1])
+            mired_target = colour.temperature.CCT_to_mired(cct)
+            override_blend = (mired_1 - mired_target) / (mired_1 - mired_0)
+
+        blended_mat = mat_0.interpolate(mat_1, 1 - override_blend)
+
+        self.__optimal_mat = MatXyzToCamera(blended_mat, targ_xyz)
+        self.__optimal_multipliers = np.matmul(blended_mat, targ_xyz)
+
+    def update_by_reference(self, ref_white : np.ndarray, max_iters : int = 30, stop_epsilon : float = 0.000001):
+        """Interpolate ColorMatrix calibrations to update the optimal matrix under a provided camera neutral point.
+
+        This algorithm is iterative but for most values will return one of the preset calibrations. It works by finding the matrix that minimizes
+        the tint from an ideal curve assuming neutral is an approximate illuminant. Because daylight illuminants are typically preferred and have
+        a different tinting profile than other illuminants (like A), usually the returned matrix is close to (or exactly) one of the D-series
+        transformation presets.
+
+        Args:
+            ref_white (np.ndarray): Camera neutral point in reference (sensor) space [0,1]. Do not normalize to G' = 1.0.
+            max_iters (int, optional): Maximum iterations before stopping. Defaults to 30.
+            stop_epsilon (float, optional): Minimum step size before assumed converged. Defaults to 0.000001.
+        """
+
+        self.__optimal_multipliers = np.copy(ref_white)
+
+        if len(self.__mats) == 1:
+            self.__optimal_mat = MatXyzToCamera(np.copy(self.__mats[0].mat), np.matmul(np.linalg.inv(self.__mats[0].mat), self.__optimal_multipliers))
+            return 
+        
+        mat_k = []
+        for mat in self.__mats:
+            cct_and_tint = colour.temperature.XYZ_to_CCT_Ohno2013(mat.xyz)
+            mat_k.append(cct_and_tint[0])
+        
+        mats = [x for _, x in sorted(zip(mat_k, self.__mats))] # Sort mats by CCT
+        
+        mat_t = [colour.temperature.XYZ_to_CCT_Ohno2013(np.matmul(np.linalg.inv(mat.mat), self.__optimal_multipliers))[1] for mat in mats]
+        mat_t = [abs(get_ideal_duv(k) - x) for x,k in zip(mat_t, mat_k)]
+
+        idx_lowest = [x for _, x in sorted(zip(mat_t, [y for y in range(len(mats))]))]
+
+        if abs(idx_lowest[0] - idx_lowest[1]) == 1:
+            mat_0 = mats[idx_lowest[0]]
+            mat_1 = mats[idx_lowest[1]]
         else:
-            worst_bf = current
+            mat_0 = mats[idx_lowest[0]]
+            return MatXyzToCamera(np.copy(mat_0.mat), np.matmul(np.linalg.inv(mat_0.mat), self.__optimal_multipliers))
 
-        i += 1
+        # Solve blend factor for minimum error alongside two matrices
+        best_xyz = np.matmul(np.linalg.inv(mat_0.mat), self.__optimal_multipliers)
+
+        best = min(mat_t)
+        best_bf = 0.0
+        worst_bf = 1.0
+
+        current = float("inf")
+
+        i = 0
+        while i < max_iters and abs(best_bf - worst_bf) > stop_epsilon:
+            current = (worst_bf + best_bf) / 2
+            current_xyz = np.matmul(np.linalg.inv(mat_0.interpolate(mat_1, current)), self.__optimal_multipliers)
+            cct_and_tint = colour.temperature.XYZ_to_CCT_Ohno2013(current_xyz)
+            tint = abs(get_ideal_duv(cct_and_tint[0]) - cct_and_tint[1])
+
+            if tint <= best:
+                best = tint
+                best_xyz = current_xyz
+                best_bf = current
+            else:
+                worst_bf = current
+
+            i += 1
+        
+        self.__optimal_mat = MatXyzToCamera(mat_0.interpolate(mat_1, best_bf), best_xyz)
+        return
     
-    output = MatXyzToCamera(mat_0.interpolate(mat_1, best_bf), best_xyz)
+    def get_reciprocal_multipliers(self) -> np.ndarray:
+        """Get reciprocal neutral channel multipliers. Reciprocal is more useful because it can be immediately
+        multiplied with color channels to achieve initial white balance pass.
 
-    print(colour.temperature.XYZ_to_CCT_Ohno2013(best_xyz)[0], best)
-    return output
+        Returns:
+            np.ndarray: Reciprocal channel multipliers.
+        """
+        return np.copy(1.0 / self.__optimal_multipliers)
 
-def get_optimal_camera_mat_from_cct_duv(tags : Dict[str, Any], cct : float, duv : Optional[float] = None, override_blend : Optional[float] = None) -> Optional[Tuple[MatXyzToCamera, np.ndarray]]:
-    """Interpolate ColorMatrix calibrations to find the camera neutral point for a given color temperature.
+    def get_matrix(self) -> MatXyzToCamera:
+        """Get optimized color matrix under current parameters.
 
-    Args:
-        tags (Dict[str, Any]): Tags dictionary as held by exifread.
-        cct (float): Target color temperature.
-        duv (Optional[float], optional): Target delta from Planckian locus. Defaults to an idealized curve which leans close to D-series above 4000K and blackbody below. Defaults to None.
-        override_blend (Optional[float], optional): Blend factor override. 0 uses closest CCT, 1 uses furthest. Defaults to None, which blends using mired. Software typically overrides this to use closest.
+        Returns:
+            MatXyzToCamera: Optimized color matrix.
+        """
+        return self.__optimal_mat
 
-    Returns:
-        Optional[Tuple[MatXyzToCamera, np.ndarray]]: (CameraMatrix, reference neutral in [1,0]). None if there were no color profiles in the DNG.
-    """
+    def copy(self) -> CameraWhiteBalanceController:
+        """Return a copy of this controller.
 
-    mats = exif_get_color_mat_sources(tags)
-    if len(mats) == 0:
-        return None
+        Returns:
+            CameraWhiteBalanceController: Deep copy of controller.
+        """
+        mats = []
+        for mat in self.__mats:
+            mats.append(MatXyzToCamera(mat.mat, mat.xyz))
+        output = CameraWhiteBalanceController(mats, self.__optimal_multipliers)
+        output.__optimal_mat = MatXyzToCamera(self.__optimal_mat.mat, self.__optimal_mat.xyz)
+        return output
 
-    mat_k = [colour.temperature.XYZ_to_CCT_Ohno2013(mat.xyz)[0] for mat in mats]
-    mats = [x for _, x in sorted(zip(mat_k, mats))]
-    mat_k.sort()
+class CameraWhiteBalanceControllerFromExif(CameraWhiteBalanceController):
+    def __init__(self, tags : Dict[str, Any]):
+        """Create a white balance controller using DNG ColorMatrix calibrations.
 
-    if duv == None:
-        # Tint is usually computed for a given temperature. This is because we typically imagine temperature as relating
-        #     to D-series illuminants which simulate daylight.
-        # D series is tinted away from the Planckian locus, so compute a tint for the D-series illuminant.
-        # If no illuminant is available, match to Planckian instead.
+        The returned controller will be pre-optimized for quality under camera AsShotNeutral.
 
-        duv = get_ideal_duv(cct)
+        Args:
+            tags (Dict[str, Any]): Tags dictionary as held by exifread.
 
-    targ_xyz = colour.temperature.CCT_to_XYZ_Ohno2013(np.array([cct,duv]))
+        Raises:
+            KeyError: Raised if the tag dictionary did not contained required tags for color management.
+        """
 
-    if cct <= mat_k[0]:
-        return np.matmul(mats[0].mat, targ_xyz)
-    if cct >= mat_k[-1]:
-        return np.matmul(mats[-1].mat, targ_xyz)
-    
-    # Interpolate closest matrices by mired
-    mat_k.append(cct)
-    mat_k.sort()
+        mats = exif_get_color_mat_sources(tags)
+        if len(mats) == 0:
+            raise KeyError("EXIF ColorMatrix tags or illuminant tags missing, could not create white balance controller!")
 
-    idx_0 = mat_k.index(cct) - 1
-    idx_1 = idx_0 + 1
+        try:
+            multi_cam_wb = exif_get_as_shot_neutral(tags)
+        except:
+            raise KeyError("EXIF ColorMatrix tags or illuminant tags missing, could not create white balance controller!")
 
-    mat_k.pop(idx_1)
-
-    mat_0 = mats[idx_0]
-    mat_1 = mats[idx_1]
-
-    if override_blend == None:
-        mired_0 = colour.temperature.CCT_to_mired(mat_k[idx_0])
-        mired_1 = colour.temperature.CCT_to_mired(mat_k[idx_1])
-        mired_target = colour.temperature.CCT_to_mired(cct)
-        override_blend = (mired_1 - mired_target) / (mired_1 - mired_0)
-
-    blended_mat = mat_0.interpolate(mat_1, 1 - override_blend)
-
-    return (MatXyzToCamera(blended_mat, targ_xyz), np.matmul(blended_mat, targ_xyz))
+        super().__init__(mats, multi_cam_wb)

@@ -131,11 +131,12 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     sum_weight = np.zeros_like(valid_exposures[0].bayer_data_scaled)
 
     # Since we'll correct WB later, add additional bias on WB to reduce noise gain after WB is scaled
+    wb_coeff = valid_exposures[0].cam_wb.get_reciprocal_multipliers()
     bayer_noise_weight = np.ones((valid_exposures[0].bayer_data_scaled.shape[0] // 2, valid_exposures[0].bayer_data_scaled.shape[1] // 2), dtype=np.float32)
-    bayer_noise_weight = rgbg_to_bayer(bayer_noise_weight * valid_exposures[0].wb_coeff[0],
-                                       valid_exposures[0].wb_coeff[1],
-                                       valid_exposures[0].wb_coeff[2],
-                                       valid_exposures[0].wb_coeff[1])
+    bayer_noise_weight = rgbg_to_bayer(bayer_noise_weight * wb_coeff[0],
+                                       wb_coeff[1],
+                                       wb_coeff[2],
+                                       wb_coeff[1])
 
     for exposure, ev_offset in zip(valid_exposures, ev_offsets):
         bias = 1.6 ** (-0.1 * np.abs(ev_offset * bayer_noise_weight))       # Bias stacking to favor closest EV - this is just a random curve that should weight
@@ -156,8 +157,7 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     hdr_image.bayer_data_scaled = sum_pixel
     hdr_image.current_ev = target_ev
     hdr_image.lim_sat = max(ev_offsets)
-    hdr_image.mat_xyz = np.copy(valid_exposures[0].mat_xyz)
-    hdr_image.wb_coeff = np.copy(valid_exposures[0].wb_coeff)
+    hdr_image.cam_wb = valid_exposures[0].cam_wb.copy()
     hdr_image.set_hdr(True)
 
     return (hdr_image, debug_count_references)
