@@ -1,6 +1,7 @@
-Cython==3.0.10
+colour-science==0.4.4
+Cython==3.0.11
 ExifRead==3.0.0
-numpy==1.23.5
-opencv_python==4.8.0.76
-rawpy==0.18.1
+numpy==2.2.4
+opencv_python==4.10.0.84
+rawpy==0.22.0
 tifftools==1.5.2

@@ -2,6 +2,8 @@ from __future__ import annotations
 import numpy as np
 import exifread, rawpy
 from typing import Optional, Union
+
+from pySP.wb_cct.cam_wb import CameraWhiteBalanceControllerFromExif
 from .normalization import bayer_normalize
 from .debayer import debayer_ahd, debayer_fast
 from .base_types.image_base import RawRgbgData_BaseType, RawDebayerData
@@ -115,9 +117,15 @@ class RawRgbgDataFromRaw(RawRgbgData):
             with rawpy.imread(reader) as in_dng:
                 chan_sat = in_dng.camera_white_level_per_channel
                 chan_black = in_dng.black_level_per_channel
-                self.wb_coeff = in_dng.camera_whitebalance
-                self.mat_xyz = in_dng.rgb_xyz_matrix
                 self.bayer_data_scaled = bayer_normalize(in_dng.raw_image, chan_black, chan_sat)
+            
+            if type(filename_or_data) == str:
+                with open(filename_or_data, 'rb') as raw:
+                    tags = exifread.process_file(raw)
+            else:
+                tags = exifread.process_file(BytesIO(filename_or_data))
+            
+            self.cam_wb = CameraWhiteBalanceControllerFromExif(tags)
             
             self.current_ev = compute_ev_from_exif(filename_or_data)
             if self.current_ev != np.inf:
@@ -150,7 +158,6 @@ class RawDebayerDataFromRaw(RawDebayerData):
                 reader = BytesIO(filename_or_data)
 
             with rawpy.imread(reader) as in_dng:
-                self.mat_xyz = in_dng.rgb_xyz_matrix
                 self._wb_coeff = in_dng.daylight_whitebalance
                 self.image = in_dng.postprocess(demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
                                                 fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Full,
@@ -162,10 +169,19 @@ class RawDebayerDataFromRaw(RawDebayerData):
                                                 no_auto_bright=True,
                                                 highlight_mode=rawpy.HighlightMode.Clip)
             
+            if type(filename_or_data) == str:
+                with open(filename_or_data, 'rb') as raw:
+                    tags = exifread.process_file(raw)
+            else:
+                tags = exifread.process_file(BytesIO(filename_or_data))
+            
+            cont = CameraWhiteBalanceControllerFromExif(tags)
+            cont.update_by_reference(self._wb_coeff)    # TODO - Check this isn't normalized
+            self.mat_xyz = cont.get_matrix()
             self.image = self.image.astype(np.float32) / ((2 ** 16) - 1)
             self.current_ev = compute_ev_from_exif(filename_or_data)
 
-        except (rawpy.LibRawError, FileNotFoundError, IOError) as e:
+        except (rawpy.LibRawError, FileNotFoundError, IOError, OSError) as e:
             print(e)
     
         self._wb_applied = True

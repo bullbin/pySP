@@ -1,5 +1,9 @@
 import numpy as np
 
+from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera, bradford_adapt_matrix
+from pySP.wb_cct.standard_ill import StandardIlluminant, get_chromacity_from_illuminant
+from colour import xy_to_XYZ
+
 def clip_rgb(rgb : np.ndarray) -> np.ndarray:
     """Clip an RGB image to [0,1].
 
@@ -15,7 +19,7 @@ def clip_rgb(rgb : np.ndarray) -> np.ndarray:
     out[:,:,2] = np.clip(rgb[:,:,2], 0, 1)
     return out
 
-def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highlights : bool = True) -> np.ndarray:
+def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : MatXyzToCamera, clip_highlights : bool = True) -> np.ndarray:
     """Convert an input image from camera-space to linearized sRGB colors.
 
     Args:
@@ -26,11 +30,10 @@ def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highligh
     Returns:
         np.ndarray: Linearized sRGB image.
     """
-
-    # TODO - Assert CMYK
-    mat = cam_xyz_matrix[:3]
+    # Transform variable cable white to fixed white point using Bradform adaptation (proposed in DNG spec)
+    ca_mat = bradford_adapt_matrix(xy_to_XYZ(get_chromacity_from_illuminant(StandardIlluminant.D65)), cam_xyz_matrix.xyz)
     
-    # TODO - Adapted color spaces, http://brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
+    # Mat to transform XYZd65 to linearized sRGB, http://brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
     mat_srgb_d65 = np.array([[0.412453, 0.357580, 0.180423],
                              [0.212671, 0.715160, 0.072169],
                              [0.019334, 0.119193, 0.950227]])
@@ -41,11 +44,24 @@ def cam_to_lin_srgb(rgb : np.ndarray, cam_xyz_matrix : np.ndarray, clip_highligh
 
     # Credit - dcraw, https://ninedegreesbelow.com/files/dcraw-c-code-annotated-code.html#E3
     # Credit - https://stackoverflow.com/questions/8904694/how-to-normalize-a-2-dimensional-numpy-array-in-python-less-verbose
-    color_mat = np.matmul(mat, mat_srgb_d65)
+
+    # Form color output matrix
+    # Color matrix produces RGB (linear, D65) -> R'G'B' (reference space)
+    # This is composed of the following transforms in sequence:
+    #     RGB -> XYZd65         mat_srgb_d65
+    #     XYZd65 -> XYZdCam     ca_mat
+    #     XYZdCam -> R'G'B'     cam_xyz_matrix
+    color_mat = np.matmul(ca_mat, cam_xyz_matrix.mat)
+    color_mat = np.matmul(mat_srgb_d65, color_mat)
+
+    # Normalize to remove tint (refer to dcraw for why)
     color_sum = color_mat.sum(axis=1)
     color_mat = color_mat / color_sum[:, np.newaxis]
+
+    # Invert to produce R'G'B' (reference space) -> RGB (linear, D65)
     color_mat = np.linalg.inv(color_mat)
 
+    # Transform camera RGB to linearized sRGB
     rgb_pre = np.dot(rgb, color_mat.T)
     return rgb_pre.astype(np.float32)
 
