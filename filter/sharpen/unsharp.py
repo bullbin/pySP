@@ -4,7 +4,8 @@ from pySP.colorize import lin_srgb_to_oklab, oklab_to_lin_srgb
 from pySP.filter.blur import blur_gaussian
 
 def unsharp_mask_per_channel(image : np.ndarray, radius : float, amount : float) -> np.ndarray:
-    """Unsharp mask operating on a per-channel basis.
+    """Unsharp mask operating on a per-channel basis. This is a microcontrast boosting method so is
+    effective improving edge sharpness and overall clarity.
 
     This uses naive unsharp on every channel. On RGB images, for example, expect overshoot and fringing.
 
@@ -21,7 +22,8 @@ def unsharp_mask_per_channel(image : np.ndarray, radius : float, amount : float)
     return image + high_pass * amount
 
 def unsharp_mask_lab(lin_srgb : np.ndarray, radius : float, amount : float) -> np.ndarray:
-    """Unsharp mask operating in a LAB space.
+    """Unsharp mask operating in a LAB space. This is a microcontrast boosting method so is
+    effective improving edge sharpness and overall clarity.
 
     This applies unsharp to just the L channel, avoiding color artifacts. Keep the amount sensible to
     prevent crunchiness between the color and lightness information.
