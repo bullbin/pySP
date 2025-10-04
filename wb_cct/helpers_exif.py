@@ -1,5 +1,5 @@
 from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
-from pySP.wb_cct.standard_ill import get_chromacity_from_illuminant, get_illuminant_from_lightsource
+from pySP.wb_cct.standard_ill import get_chromacity_from_illuminant, get_illuminant_from_lightsource, get_series_from_illuminant
 from typing import Optional, List, Dict, Any
 from colour import xy_to_XYZ
 import numpy as np
@@ -34,6 +34,7 @@ def exif_get_color_mat_sources(tags : Dict[str, Any]) -> List[MatXyzToCamera]:
         try:
             ill = get_illuminant_from_lightsource(tags[tag_light].values[0])
             xy = get_chromacity_from_illuminant(ill)
+            series = get_series_from_illuminant(ill)
         except KeyError:
             return None
 
@@ -46,7 +47,7 @@ def exif_get_color_mat_sources(tags : Dict[str, Any]) -> List[MatXyzToCamera]:
                 idx += 1
 
         # DNG stores XYZ to camera, we want the other way around
-        return MatXyzToCamera(mat, xy_to_XYZ(xy))
+        return MatXyzToCamera(mat, xy_to_XYZ(xy), series)
     
     output = []
     id = 0

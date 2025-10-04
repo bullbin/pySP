@@ -1,5 +1,8 @@
 from __future__ import annotations
+from typing import Optional
 import numpy as np
+
+from pySP.wb_cct.standard_ill import StandardIlluminantSeries
 
 def bradford_adapt_matrix(current_xyz : np.ndarray, target_xyz : np.ndarray) -> np.ndarray:
     mat_xyz_to_lms = np.array([[0.8951000, 0.2664000, -0.1614000],
@@ -24,6 +27,11 @@ class ChromacityMat():
         self.xyz.setflags(write=False)
         
 class MatXyzToCamera(ChromacityMat):
+
+    def __init__(self, mat : np.ndarray, xyz : np.ndarray, series : Optional[StandardIlluminantSeries] = None):
+        super().__init__(mat, xyz)
+        self.series = series
+
     def interpolate(self, next : MatXyzToCamera, blend : float) -> np.ndarray:
         blend = np.clip(blend, 0.0, 1.0)
         mat = self.mat * (1 - blend) + (next.mat * blend)
