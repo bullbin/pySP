@@ -39,12 +39,6 @@ from pySP.wb_cct.standard_ill import StandardIlluminantSeries
 # adjustment is required to get values which match other software.
 ###############################################################################
 
-# TODO - Typically A and D65 illuminant are supplied with DNG. In most cases,
-#        D65 illuminant is preferred, likely because tint is better aligned
-#        with natural conditions. This is a problem for our temp to neutral
-#        system though because we have to ignore the mired blending suggested
-#        in DNG spec to get same results as other software.
-
 def get_ideal_duv(temperature : float) -> float:
     """Get a desirable dUV for a given CCT based on the Planckian locus with adjustments after 4000K to D-series illuminants.
 
@@ -238,7 +232,7 @@ class CameraWhiteBalanceController():
         
         self.__optimal_mat = MatXyzToCamera(mat_0.interpolate(mat_1, best_bf), best_xyz)
         return
-    
+
     def get_reciprocal_multipliers(self) -> np.ndarray:
         """Get reciprocal neutral channel multipliers. Reciprocal is more useful because it can be immediately
         multiplied with color channels to achieve initial white balance pass.

@@ -7,7 +7,7 @@ from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
 
 from ..base_types.image_base import RawDebayerData, RawRgbgData_BaseType
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
-from ..colorize import cam_to_lin_srgb
+from ..colorize.transform import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
 from .gaussian import BayerPatternPosition, get_rgbg_kernel
 
