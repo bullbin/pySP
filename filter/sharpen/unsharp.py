@@ -1,6 +1,6 @@
 import numpy as np
 
-from pySP.colorize import lin_srgb_to_oklab, oklab_to_lin_srgb
+from pySP.colorize.transform import lin_srgb_to_oklab, oklab_to_lin_srgb
 from pySP.filter.blur import blur_gaussian
 
 def unsharp_mask_per_channel(image : np.ndarray, radius : float, amount : float) -> np.ndarray:

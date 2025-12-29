@@ -1,6 +1,6 @@
 import numpy as np
 
-from pySP.colorize import lin_srgb_to_oklab, oklab_to_lin_srgb
+from pySP.colorize.transform import lin_srgb_to_oklab, oklab_to_lin_srgb
 from pySP.filter.blur import blur_gaussian
 
 def gaussian_rt_deconvolution(image : np.ndarray, sigma : float, iterations : int = 20) -> np.ndarray:
