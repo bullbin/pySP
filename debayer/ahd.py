@@ -47,6 +47,8 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
                                             g * wb_coeff[1],
                                             b * wb_coeff[2])), image.cam_wb.get_matrix(), clip_highlights=False)
         
+        # NOTE - Oklab methods work here, quality is similar
+        # I don't know what CV2 is doing. Unfortunately CV2 is like 20% faster to do color transforms so leave it here
         if image.get_hdr():
             # If the image is HDR, we can't formulate a CIELAB representation
             # Instead, use luma for L* and tonemap to get A*B*.
@@ -85,7 +87,7 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
     #        Do not set this value too high or you'll experience debugging hell
     h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569], dtype=np.float32)
     h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25], dtype=np.float32)
-    ratio_optimal = 0.0
+    ratio_optimal = 0.125
     h = (h_optimal * ratio_optimal) + (h_fast * (1 - ratio_optimal))
 
     # Interpolate green channel from red
