@@ -5,6 +5,11 @@ from typing import Dict, Tuple
 #     as of 22/1/25.
 # Yes, citing a wiki is bad, the numbers seem fine!
 
+class StandardIlluminantSeries(IntEnum):
+    STANDALONE = auto()
+    SERIES_DAYLIGHT = auto()
+    SERIES_FLOURESCENT = auto()
+
 class StandardIlluminant(IntEnum):
     A = auto()
     B = auto()
@@ -20,7 +25,6 @@ class StandardIlluminant(IntEnum):
     F5 = auto()
 
 STANDARD_ILLUMINANT_TO_XY : Dict[StandardIlluminant, Tuple[float,float]] = {
-    
     StandardIlluminant.A : (0.44758, 0.40745),
     StandardIlluminant.B : (0.34842, 0.35161),
     StandardIlluminant.C : (0.31006, 0.31616),
@@ -33,6 +37,21 @@ STANDARD_ILLUMINANT_TO_XY : Dict[StandardIlluminant, Tuple[float,float]] = {
     StandardIlluminant.F3 : (0.40910, 0.39430),
     StandardIlluminant.F4 : (0.44018, 0.40329),
     StandardIlluminant.F5 : (0.31379, 0.34531)
+}
+
+STANDARD_ILLUMINANT_TO_SERIES : Dict[StandardIlluminant, StandardIlluminantSeries] ={
+    StandardIlluminant.A: StandardIlluminantSeries.STANDALONE,
+    StandardIlluminant.B: StandardIlluminantSeries.STANDALONE,
+    StandardIlluminant.C: StandardIlluminantSeries.STANDALONE,
+    StandardIlluminant.D50 : StandardIlluminantSeries.SERIES_DAYLIGHT,
+    StandardIlluminant.D55 : StandardIlluminantSeries.SERIES_DAYLIGHT,
+    StandardIlluminant.D65 : StandardIlluminantSeries.SERIES_DAYLIGHT,
+    StandardIlluminant.D75 : StandardIlluminantSeries.SERIES_DAYLIGHT,
+    StandardIlluminant.F1 : StandardIlluminantSeries.SERIES_FLOURESCENT,
+    StandardIlluminant.F2 : StandardIlluminantSeries.SERIES_FLOURESCENT,
+    StandardIlluminant.F3 : StandardIlluminantSeries.SERIES_FLOURESCENT,
+    StandardIlluminant.F4 : StandardIlluminantSeries.SERIES_FLOURESCENT,
+    StandardIlluminant.F5 : StandardIlluminantSeries.SERIES_FLOURESCENT,
 }
 
 LIGHTSOURCE_TO_STANDARD_ILLUMINANT : Dict[int, StandardIlluminant] = {
@@ -49,6 +68,19 @@ LIGHTSOURCE_TO_STANDARD_ILLUMINANT : Dict[int, StandardIlluminant] = {
     22:StandardIlluminant.D75,
     23:StandardIlluminant.D50
 }
+
+def get_series_from_illuminant(ill : StandardIlluminant) -> StandardIlluminantSeries:
+    """Get illuminant series for a standard illuminant.
+
+    Args:
+        ill (StandardIlluminant): Standard illuminant.
+
+    Returns:
+        StandardIlluminantSeries: Illuminant series.
+    """
+    if ill in STANDARD_ILLUMINANT_TO_SERIES:
+        return STANDARD_ILLUMINANT_TO_SERIES[ill]
+    raise KeyError("Illuminant", StandardIlluminant.A.name, "has no defined series!")
 
 def get_chromacity_from_illuminant(ill : StandardIlluminant) -> Tuple[float,float]:
     """Get CIE 1931 chromacities for a standard illuminant.

@@ -1,7 +1,7 @@
 from typing import Optional
 import numpy as np
 
-from pySP.colorize import cam_to_lin_srgb
+from pySP.colorize.transform import cam_to_lin_srgb
 from pySP.const import QualityDemosaic
 from pySP.wb_cct.cam_wb import CameraWhiteBalanceController
 from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera

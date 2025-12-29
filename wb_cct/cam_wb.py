@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
 from pySP.wb_cct.helpers_exif import exif_get_as_shot_neutral, exif_get_color_mat_sources
+from pySP.wb_cct.standard_ill import StandardIlluminantSeries
 
 ###############################################################################
 #       NOTE - White balancing (at least how I've learnt it works)
@@ -37,12 +38,6 @@ from pySP.wb_cct.helpers_exif import exif_get_as_shot_neutral, exif_get_color_ma
 # into the camera matrix to get a corresponding AsShotNeutral. The D-series
 # adjustment is required to get values which match other software.
 ###############################################################################
-
-# TODO - Typically A and D65 illuminant are supplied with DNG. In most cases,
-#        D65 illuminant is preferred, likely because tint is better aligned
-#        with natural conditions. This is a problem for our temp to neutral
-#        system though because we have to ignore the mired blending suggested
-#        in DNG spec to get same results as other software.
 
 def get_ideal_duv(temperature : float) -> float:
     """Get a desirable dUV for a given CCT based on the Planckian locus with adjustments after 4000K to D-series illuminants.
@@ -77,18 +72,31 @@ class CameraWhiteBalanceController():
 
         self.update_by_reference(initial_ref_white)
 
-    def update_by_temperature(self, cct : float, duv : Optional[int] = None, override_blend : Optional[float] = None):
+    def __set_optimal_mat_and_multipliers(self, mat : np.ndarray, xyz : np.ndarray):
+        self.__optimal_mat = MatXyzToCamera(mat, xyz)
+        self.__optimal_multipliers = np.matmul(self.__optimal_mat.mat, xyz)
+        self.__optimal_multipliers = self.__optimal_multipliers / self.__optimal_multipliers[1]
+        print(self.__optimal_multipliers)
+
+    def update_by_temperature(self, cct : float, duv : Optional[int] = None, allow_cross_blend : bool = False):
         """Interpolate ColorMatrix calibrations to update the optimal matrix and neutral point assuming a new scene illuminant.
 
         Args:
             cct (float): Target color temperature.
             duv (Optional[int], optional): Target delta from Planckian locus. Defaults to an idealized curve which leans close to D-series above 4000K and blackbody below. Defaults to None.
-            override_blend (Optional[float], optional): Blend factor override. 0 uses closest CCT, 1 uses furthest. Defaults to None, which blends using mired. Software typically overrides this to use closest.
+            allow_cross_blend (bool, optional): Allow blending between matrices between different calibration series. May produce strange colors. Defaults to False.
         """
 
+        if len(self.__mats) == 0:
+            raise ValueError("No calibration matrices provided! Cannot interpolate matrix.")
+        
+        if len(self.__mats) == 1:
+            # If there is only one calibration matrix, use that
+            self.__set_optimal_mat_and_multipliers(self.__mats[0].mat, targ_xyz)
+            return
+        
         mat_k = [colour.temperature.XYZ_to_CCT_Ohno2013(mat.xyz)[0] for mat in self.__mats]
         mats_by_k = [x for _, x in sorted(zip(mat_k, self.__mats))]                             # Sort mats by temperature
-        
         mat_k.sort()
 
         if duv == None:
@@ -101,33 +109,60 @@ class CameraWhiteBalanceController():
 
         targ_xyz = colour.temperature.CCT_to_XYZ_Ohno2013(np.array([cct,duv]))
 
-        if cct <= mat_k[0]:
-            return np.matmul(mats_by_k[0].mat, targ_xyz)
-        if cct >= mat_k[-1]:
-            return np.matmul(mats_by_k[-1].mat, targ_xyz)
+        if cct <= mat_k[0] or cct >= mat_k[-1]:         # If CCT is outside calibration range, return edge calibration matrices (may be tinted)
+            if cct <= mat_k[0]:
+                self.__set_optimal_mat_and_multipliers(mats_by_k[0].mat, targ_xyz)
+            else:
+                self.__set_optimal_mat_and_multipliers(mats_by_k[-1].mat, targ_xyz)
+            return
         
-        # Interpolate closest matrices by mired
-        mat_k.append(cct)
-        mat_k.sort()
+        # Find closest calibration reference
+        ref_list_k = mat_k
+        ref_list_mats = mats_by_k
 
-        idx_0 = mat_k.index(cct) - 1
+        if not(allow_cross_blend):
+            # White balancing is typically under D-series but we sort matrices by k, meaning it is possible
+            #     that two matrices from different series are picked for blending to meet a target k
+            # This is likely to produce a strange result (although the different in my gear seems insignificant)
+            # Prevent this by picking out only D-series for blending attempt
+
+            # TODO - Swap to D-series or other illuminant, this will fail out and release only D-series if K is too low
+
+            ref_list_k = []
+            ref_list_mats = []
+
+            for k, mat in zip(mat_k, mats_by_k):
+                if mat.series == StandardIlluminantSeries.SERIES_DAYLIGHT:
+                    ref_list_k.append(k)
+                    ref_list_mats.append(mat)
+            
+            if len(ref_list_mats) == 0:
+                raise ValueError("Could not find any daylight series matrices inside DNG!")
+
+            if len(ref_list_mats) == 1:
+                # If there is only one calibration matrix, use that
+                self.__set_optimal_mat_and_multipliers(ref_list_mats[0].mat, targ_xyz)
+                return
+            
+        ref_list_k.append(cct)
+        ref_list_k.sort()
+
+        idx_0 = ref_list_k.index(cct) - 1
         idx_1 = idx_0 + 1
 
-        mat_k.pop(idx_1)
+        ref_list_k.pop(idx_1)
 
-        mat_0 = mats_by_k[idx_0]
-        mat_1 = mats_by_k[idx_1]
+        mat_0 = ref_list_mats[idx_0]
+        mat_1 = ref_list_mats[idx_1]
 
-        if override_blend == None:
-            mired_0 = colour.temperature.CCT_to_mired(mat_k[idx_0])
-            mired_1 = colour.temperature.CCT_to_mired(mat_k[idx_1])
-            mired_target = colour.temperature.CCT_to_mired(cct)
-            override_blend = (mired_1 - mired_target) / (mired_1 - mired_0)
+        mired_0 = colour.temperature.CCT_to_mired(mat_k[idx_0])
+        mired_1 = colour.temperature.CCT_to_mired(mat_k[idx_1])
+        mired_target = colour.temperature.CCT_to_mired(cct)
 
+        override_blend = (mired_1 - mired_target) / (mired_1 - mired_0)
         blended_mat = mat_0.interpolate(mat_1, 1 - override_blend)
 
-        self.__optimal_mat = MatXyzToCamera(blended_mat, targ_xyz)
-        self.__optimal_multipliers = np.matmul(blended_mat, targ_xyz)
+        self.__set_optimal_mat_and_multipliers(blended_mat, targ_xyz)
 
     def update_by_reference(self, ref_white : np.ndarray, max_iters : int = 30, stop_epsilon : float = 0.000001):
         """Interpolate ColorMatrix calibrations to update the optimal matrix under a provided camera neutral point.
@@ -142,6 +177,8 @@ class CameraWhiteBalanceController():
             max_iters (int, optional): Maximum iterations before stopping. Defaults to 30.
             stop_epsilon (float, optional): Minimum step size before assumed converged. Defaults to 0.000001.
         """
+
+        # TODO - Work within series or figure something else out
 
         self.__optimal_multipliers = np.copy(ref_white)
 
@@ -195,7 +232,7 @@ class CameraWhiteBalanceController():
         
         self.__optimal_mat = MatXyzToCamera(mat_0.interpolate(mat_1, best_bf), best_xyz)
         return
-    
+
     def get_reciprocal_multipliers(self) -> np.ndarray:
         """Get reciprocal neutral channel multipliers. Reciprocal is more useful because it can be immediately
         multiplied with color channels to achieve initial white balance pass.

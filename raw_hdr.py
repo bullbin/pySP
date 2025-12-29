@@ -1,6 +1,6 @@
 from pySP.bayer_chan_mixer import rgbg_to_bayer
 from .image import RawRgbgData, RawDebayerData
-from .colorize import cam_to_lin_srgb
+from .colorize.transform import cam_to_lin_srgb
 import numpy as np
 from typing import Tuple, List, Optional
 
@@ -157,7 +157,7 @@ def fuse_exposures_to_raw(in_exposures : List[RawRgbgData], target_ev : Optional
     hdr_image.bayer_data_scaled = sum_pixel
     hdr_image.current_ev = target_ev
     hdr_image.lim_sat = max(ev_offsets)
-    hdr_image.cam_wb = valid_exposures[0].cam_wb.copy()
+    hdr_image.cam_wb = valid_exposures[0].cam_wb.copy()     # TODO (BUG) - Fix broken D-series balancing
     hdr_image.set_hdr(True)
 
     return (hdr_image, debug_count_references)
