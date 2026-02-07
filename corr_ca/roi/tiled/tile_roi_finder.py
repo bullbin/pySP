@@ -36,7 +36,7 @@ class RoiDetector():
         self.__central_point_idx = (np.array(self._resource.source.shape[:2]) - 1) / 2
 
         self._tiles : List[TileResult]          = []
-        self._bins  : List[List[TileResult]]    = []
+        self.bins  : List[List[TileResult]]    = []
 
         # During init, compute fast radial lookup map
         # This isn't exact (its missing y,x crop) but good enough for our purposes
@@ -65,7 +65,7 @@ class RoiDetector():
 
     def _update_bins(self):
         # Invalidate current bins
-        self._bins = []
+        self.bins = []
 
         # Copy out our pre-indexed array for radius
         lookup = np.copy(self._radial_lookup)
@@ -83,13 +83,13 @@ class RoiDetector():
                 bin.append(self._tiles[self._map_tile_idx[point[0], point[1]]])
             
             bin_sorted = sorted(bin, key=lambda result: result.average_n, reverse=True)
-            self._bins.append(bin_sorted)
+            self.bins.append(bin_sorted)
     
     def __extract_feature_map_from_tile(self, tile_index : np.ndarray):
         width = self._resource.get_tile_width()
         offset = self._resource.tile_offset_to_real_coords(tile_index).astype(np.uint32)
-        tile = self._resource.source_cropped[offset[0]:offset[0] + width,
-                                             offset[1]:offset[1] + width]
+        tile = self._resource.source[offset[0]:offset[0] + width,
+                                     offset[1]:offset[1] + width]
 
         # Get the location of the top n values in the tile
         flattened = tile.flatten()
@@ -121,6 +121,7 @@ class RoiDetector():
 
         # Compute midpoint
         midpoint = np.average(unflatten, axis=1)
+        offset_midpoint = np.copy(midpoint)
 
         # Weight how close the midpoint is to the bounds of each axis
         ratio = np.abs(0.5 - (midpoint / tile.shape)) / 0.5
@@ -148,8 +149,10 @@ class RoiDetector():
 
         # Convert to our line encoding, recompute midpoint as closest point on line.
         # Flip y,x to change from indexing to points
-        midpoint = line.get_perpendicular_intersection(tuple(midpoint[::-1]))
+        midpoint = tuple(midpoint[::-1])
+        midpoint = line.get_perpendicular_intersection(midpoint)
         midpoint = (midpoint[0] + offset[0], midpoint[1] + offset[1])   # Convert to absolute co-ords
+        # TODO - Had to flip this to get accurate midpoint, is this dependent on line formulation?
 
         # To compute angle, use dot product. Re-express line
         vec_center_to_mid = np.array((midpoint[0] - self.__central_point_idx[0], midpoint[1] - self.__central_point_idx[1]))
@@ -170,7 +173,7 @@ class RoiDetector():
         # At this point, feature should be strong with good directionality. The best features should have
         #     the strongest edge, so keep the average n values
         # During matching we will end up aligning this feature, so also keep the average feature location
-        return TileResult(offset, np.average(tile[unflatten]), midpoint)
+        return TileResult(offset, np.average(tile[unflatten]), offset_midpoint)
 
     def apply_threshold(self, threshold : float):
         if threshold == self._threshold:
