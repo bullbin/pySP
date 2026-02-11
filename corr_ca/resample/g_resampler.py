@@ -26,6 +26,9 @@ def simple_delta_mix_bilinear_kernel(top : np.ndarray, bottom : np.ndarray, left
     #  L . R   We'll therefore blend more in the TB direction to try to preserve directionality (rotate this for LR).
     #    B     TODO - We have full soft edge map from Bayer instability. We could make some modifications to make it directional.
 
+    # TODO - Experiment with blending part of pure bilinear back in, where overall delta is quite low sometimes this could be
+    #            used to avoid adding cross artifact (mazes).
+
     delta_y = np.abs(top - bottom)
     delta_x = np.abs(left - right)
     sum_delta = delta_y + delta_x

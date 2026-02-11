@@ -107,6 +107,57 @@ class ReversibleModelMixin():
     def estimate_undistorted(self, distorted : np.ndarray, max_iterations : int = 8, max_epsilon : float = 0.00001) -> np.ndarray:
         pass
 
+    def get_undistorted_coordinates(self, image : np.ndarray) -> np.ndarray:
+        """For the entire image array, get the co-ordinates for sampling the undistorted sample
+        at the distorted location. These can be used with cv2.remap to get the distorted
+        original.
+
+        One example usecase is aligning CA channels. Using the lens distortion model to get a
+        forward mapping of red (distorted) to green (undistorted), we can reverse this to get a
+        mapping of green onto red.
+
+        Args:
+            image (np.ndarray): Input image. Corners will be used for maximum radius.
+
+        Returns:
+            np.ndarray: Output co-ordinates, such that distorted input co-ordinates would get undistorted to these.
+        """
+        # TODO - Remove duplication, we can get output shape from delta array alone
+
+        # Get radial field and coord offset fields (top-left quarter)
+        radius = get_empty_radius_field(image)
+        coords = get_empty_coord_field(image)
+        center = (np.array(image.shape[:2]) - 1) / 2
+        
+        deltas = np.copy(coords).astype(np.float32)
+        deltas[:,:,0] -= center[0]
+        deltas[:,:,1] -= center[1]
+
+        # From our undistorted sampling points, get the distorted destination under the model
+        distorted_r = self.estimate_undistorted(radius.flatten()).reshape(-1, radius.shape[1])
+
+        # Get scale factor between radius for rescaling coords
+        scale_r = distorted_r / radius
+
+        deltas[:,:,0] *= scale_r
+        deltas[:,:,1] *= scale_r
+
+        # Reflect everything
+        full_coords = np.zeros(shape=(image.shape[0], image.shape[1], 2), dtype=np.float32)
+        full_coords[:deltas.shape[0],:deltas.shape[1]] = deltas     # Top-left corner
+
+        # Top-right corner
+        working = np.copy(deltas)
+        working[..., 1] = -working[..., 1]  # invert x
+        full_coords[:deltas.shape[0],deltas.shape[1]:] = np.flip(working, axis=1)   # Flip across x, write top-right
+
+        # Bottom
+        working = np.copy(full_coords[:deltas.shape[0]])
+        working[..., 0] = -working[..., 0]  # invert y
+        full_coords[deltas.shape[0]:] = np.flip(working, axis=0)   # Flip across y, write bottom
+
+        return full_coords
+
 class NewtonRaphsonModel(CaCorrectionModel, ReversibleModelMixin):
     """Abstract class for polynomial-based lens correction models that can be reversed using Newton-Rhapson.
     """
