@@ -5,9 +5,7 @@ from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from pySP.image import RawRgbgData
 
 def compute_structural_instability(image : RawRgbgData) -> np.ndarray:
-    
-    # Compute simple WB, TODO change to actual scene white or cam white
-    image.cam_wb.update_by_temperature(5500)
+    # Compute simple WB using stored WB. Recommended to set to good value prior to everything
     wb_coeff = image.cam_wb.get_reciprocal_multipliers()
 
     # Paper - apply wb coeff NOW
