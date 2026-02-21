@@ -192,12 +192,10 @@ def debayer(image : Union[RawRgbgData_BaseType]) -> Optional[RawDebayerData]:
     r, g1, b, g2 = bayer_to_rgbg(image.bayer_data_scaled)
     wb_coeff = image.cam_wb.get_reciprocal_multipliers()
 
-    g_up = resample_g_to_full_resolution(g1, g2)
-    r_up, b_up = resample_rb(r, b, g_up)
+    g_up = resample_g_to_full_resolution(g1, g2) * wb_coeff[1]
+    r_up, b_up = resample_rb(r * wb_coeff[0], b * wb_coeff[2], g_up)
 
-    debayered =  np.dstack((r_up  * wb_coeff[0],
-                            g_up  * wb_coeff[1],
-                            b_up  * wb_coeff[2]))
+    debayered =  np.dstack((r_up, g_up, b_up))
 
     output = RawDebayerData(debayered, wb_coeff, wb_norm=False)
     output.mat_xyz = image.cam_wb.get_matrix()

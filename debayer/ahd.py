@@ -11,6 +11,10 @@ from ..colorize.transform import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
 from .gaussian import CV2_DEFAULT_KERNEL_SIGMA, BayerPatternPosition
 
+# TODO - Find source of slight Bayer pattern in flat regions on output
+#        Not a problem with EAG so points to flaw in green channel
+#        Not reduced with early WB
+
 def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
@@ -71,12 +75,16 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
 
     r, g1, b, g2 = bayer_to_rgbg(image.bayer_data_scaled)
 
+    # White balance early, we can avoid some mess with postprocessing and why not
+    # Tweaks some microcontrast. No biggie
+    wb_coeff = image.cam_wb.get_reciprocal_multipliers()
+
     # Pad photosites to make wrapping a bit easier
     #     Interpolation needs the photosites at edges as well as current, so we need to pad to let this work for edge pixels
-    r = cv2.copyMakeBorder(r, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    g1 = cv2.copyMakeBorder(g1, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    b = cv2.copyMakeBorder(b, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    g2 = cv2.copyMakeBorder(g2, 1, 1, 1, 1, cv2.BORDER_REFLECT)
+    r = cv2.copyMakeBorder(r, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[0]
+    g1 = cv2.copyMakeBorder(g1, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[1]
+    b = cv2.copyMakeBorder(b, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[2]
+    g2 = cv2.copyMakeBorder(g2, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[1]
 
     # Blend h, h_optimal is the optimal solution presented in paper. Produces no mazes but leaves aliased crosses instead
     #     h_fast is their power-of-two version. Smoother appearance but produces mazes
@@ -156,12 +164,6 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
         b = median(b - g) + g
         g = (median(g - r) + median(g - b) + r + b) / 2
         return np.dstack((r,g,b))
-
-    # White balance prior to postprocessing to reduce highlight shifting
-    wb_coeff = image.cam_wb.get_reciprocal_multipliers()
-    debayered[:,:,0] = debayered[:,:,0] * wb_coeff[0]
-    debayered[:,:,1] = debayered[:,:,1] * wb_coeff[1]
-    debayered[:,:,2] = debayered[:,:,2] * wb_coeff[2]
 
     postprocess_stages = max(postprocess_stages, 0)
     for _i in range(postprocess_stages):

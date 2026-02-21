@@ -91,10 +91,13 @@ class RawRgbgData(RawRgbgData_BaseType):
 
         if quality == QualityDemosaic.Best:
             return debayer_ahd(self, postprocess_stages=postprocess_steps)
-        elif quality == QualityDemosaic.Draft:
+        elif quality == QualityDemosaic.Fast:
             return debayer_eag(self)
-        else:
+        elif quality == QualityDemosaic.Draft:
             return debayer_fast(self)
+        else:
+            raise NotImplementedError("Quality mode not implemented: %s" % str(quality))
+
 
 class RawRgbgDataFromRaw(RawRgbgData):
     def __init__(self, filename_or_data : Union[str, bytes]):
