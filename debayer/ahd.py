@@ -11,10 +11,6 @@ from ..colorize.transform import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
 from .gaussian import CV2_DEFAULT_KERNEL_SIGMA, BayerPatternPosition
 
-# TODO - Find source of slight Bayer pattern in flat regions on output
-#        Not a problem with EAG so points to flaw in green channel
-#        Not reduced with early WB
-
 def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
@@ -96,7 +92,9 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
     h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569], dtype=np.float32)
     h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25], dtype=np.float32)
     ratio_optimal = 0.125
+
     h = (h_optimal * ratio_optimal) + (h_fast * (1 - ratio_optimal))
+    h = h / h.sum() # Always normalize h to prevent darkening pattern of green estimate at r/b pixels
 
     # Interpolate green channel from red
     gh_r = (r[1:-1, :-2] * h[0]) + (g1[1:-1, :-2] * h[1]) + (r[1:-1, 1:-1] * h[2]) + (g1[1:-1, 1:-1] * h[3]) + (r[1:-1, 2:] * h[4])
