@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 from pySP.wb_cct.cam_wb import CameraWhiteBalanceControllerFromExif
 from .normalization import bayer_normalize
-from .debayer import debayer_ahd, debayer_fast
+from .debayer import debayer_ahd, debayer_fast, debayer_eag
 from .base_types.image_base import RawRgbgData_BaseType, RawDebayerData
 
 from .const import QualityDemosaic
@@ -91,6 +91,8 @@ class RawRgbgData(RawRgbgData_BaseType):
 
         if quality == QualityDemosaic.Best:
             return debayer_ahd(self, postprocess_stages=postprocess_steps)
+        elif quality == QualityDemosaic.Draft:
+            return debayer_eag(self)
         else:
             return debayer_fast(self)
 

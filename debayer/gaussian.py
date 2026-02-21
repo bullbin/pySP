@@ -3,6 +3,13 @@ from typing import List, Tuple
 
 import numpy as np
 
+CV2_DEFAULT_UNNORM_GAUSSIAN_KERNEL = np.array([[1, 4, 6, 4,1],
+                                               [4,16,24,16,4],
+                                               [6,24,36,24,6],
+                                               [4,16,24,16,4],
+                                               [1, 4, 6, 4,1]])
+CV2_DEFAULT_KERNEL_SIGMA = 1.0
+
 class BayerPatternPosition(Enum):
     TOP_LEFT = 0
     TOP_RIGHT = 1

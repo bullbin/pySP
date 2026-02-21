@@ -8,8 +8,8 @@ from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from pySP.corr_ca.instability import compute_structural_instability
 from pySP.corr_ca.model.generic import CaCorrectionModel, ReversibleModelMixin
 from pySP.corr_ca.model.poly5 import Poly5CorrectionModel
-from pySP.corr_ca.resample.g_resampler import resample_g_to_full_resolution
-from pySP.corr_ca.resample.gauss_diff_resampler import resample_b, resample_r
+from pySP.debayer.edge_assisted_gaussian import resample_g_to_full_resolution
+from pySP.debayer.edge_assisted_gaussian import resample_b, resample_r
 from pySP.corr_ca.solver.radial_offset_solver import get_scale_pairs_using_pooled_tiler
 
 def compute_ca_lens_models_for_raw(raw : RawRgbgData_BaseType, init_model_r : Optional[CaCorrectionModel] = Poly5CorrectionModel(), init_model_b : Optional[CaCorrectionModel] = Poly5CorrectionModel(),
