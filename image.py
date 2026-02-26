@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 from pySP.wb_cct.cam_wb import CameraWhiteBalanceControllerFromExif
 from .normalization import bayer_normalize
-from .debayer import debayer_ahd, debayer_fast
+from .debayer import debayer_ahd, debayer_fast, debayer_eag
 from .base_types.image_base import RawRgbgData_BaseType, RawDebayerData
 
 from .const import QualityDemosaic
@@ -91,8 +91,13 @@ class RawRgbgData(RawRgbgData_BaseType):
 
         if quality == QualityDemosaic.Best:
             return debayer_ahd(self, postprocess_stages=postprocess_steps)
-        else:
+        elif quality == QualityDemosaic.Fast:
+            return debayer_eag(self)
+        elif quality == QualityDemosaic.Draft:
             return debayer_fast(self)
+        else:
+            raise NotImplementedError("Quality mode not implemented: %s" % str(quality))
+
 
 class RawRgbgDataFromRaw(RawRgbgData):
     def __init__(self, filename_or_data : Union[str, bytes]):

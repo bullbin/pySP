@@ -38,15 +38,18 @@ Raw processing transitions through different colorspaces. It starts at the senso
 
 Debayering via pySP's internal path uses the following algorithms at each quality setting:
 
- - Draft - Align and resample colors to quarter-res at pixel centers, bilinear scale back to original resolution
-     - Fast with little fringing but very soft due to quarter resolution solve
- - Fast - Unimplemented, planned to trade off between Best/Draft
  - Best - Adaptive Homogeneity-Directed Demosaicing algorithm (Hirakawa, K. and Parks, T.W., 2005)
 	 - Sharpens detail well with minimal zippering
 	 - Slower than libraw for performance critical applications but supports HDR
-	 - Implementation is naive and follows paper exactly; fringing is corrected using their color postprocessing method which can inadvertently remove small colored details
+	 - Can introduce mazes especially in regions with high noise
 	 - Postprocessing can be adjusted with the `postprocess_stages` argument
      - Close match for other software using non-ML techniques
+ - Fast - Edge-Assisted Gaussians Demosaicing
+     - Sharpens detail well but can introduce stippling
+     - Uses signal filtering approach of AHD but with bilinear edge-weighted green upscaling as speedup
+     - On par with AHD at a distance but subject to more false colors and fringing
+ - Draft - Align and resample colors to quarter-res at pixel centers, bilinear scale back to original resolution
+     - Fastest with little fringing but very soft due to quarter resolution solve
 
 #### Debayering via pySP
     from pySP.const import QualityDemosaic

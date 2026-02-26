@@ -3,13 +3,13 @@ from typing import Optional, Union
 import cv2
 import numpy as np
 
-from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
+from pySP.debayer.edge_assisted_gaussian import resample_channel
 
 from ..base_types.image_base import RawDebayerData, RawRgbgData_BaseType
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize.transform import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
-from .gaussian import BayerPatternPosition, get_rgbg_kernel
+from .gaussian import CV2_DEFAULT_KERNEL_SIGMA, BayerPatternPosition
 
 def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -> Optional[RawDebayerData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
@@ -71,12 +71,16 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
 
     r, g1, b, g2 = bayer_to_rgbg(image.bayer_data_scaled)
 
+    # White balance early, we can avoid some mess with postprocessing and why not
+    # Tweaks some microcontrast. No biggie
+    wb_coeff = image.cam_wb.get_reciprocal_multipliers()
+
     # Pad photosites to make wrapping a bit easier
     #     Interpolation needs the photosites at edges as well as current, so we need to pad to let this work for edge pixels
-    r = cv2.copyMakeBorder(r, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    g1 = cv2.copyMakeBorder(g1, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    b = cv2.copyMakeBorder(b, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    g2 = cv2.copyMakeBorder(g2, 1, 1, 1, 1, cv2.BORDER_REFLECT)
+    r = cv2.copyMakeBorder(r, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[0]
+    g1 = cv2.copyMakeBorder(g1, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[1]
+    b = cv2.copyMakeBorder(b, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[2]
+    g2 = cv2.copyMakeBorder(g2, 1, 1, 1, 1, cv2.BORDER_REFLECT) * wb_coeff[1]
 
     # Blend h, h_optimal is the optimal solution presented in paper. Produces no mazes but leaves aliased crosses instead
     #     h_fast is their power-of-two version. Smoother appearance but produces mazes
@@ -88,7 +92,9 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
     h_optimal   = np.array([-0.2569, 0.4339, 0.5138, 0.4339, -0.2569], dtype=np.float32)
     h_fast      = np.array([-0.25, 0.5, 0.5, 0.5, -0.25], dtype=np.float32)
     ratio_optimal = 0.125
+
     h = (h_optimal * ratio_optimal) + (h_fast * (1 - ratio_optimal))
+    h = h / h.sum() # Always normalize h to prevent darkening pattern of green estimate at r/b pixels
 
     # Interpolate green channel from red
     gh_r = (r[1:-1, :-2] * h[0]) + (g1[1:-1, :-2] * h[1]) + (r[1:-1, 1:-1] * h[2]) + (g1[1:-1, 1:-1] * h[3]) + (r[1:-1, 2:] * h[4])
@@ -106,15 +112,6 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
     # Paper uses bilinear filter for low-pass. Most current implementations use a Gaussian filter.
     # Below is a photosite-aware implementation of cv2.pyrUp that performs Gaussian upsampling
     #     without introducing plane decentering.
-
-    # We use cv2's default approximate 5x5 Gaussian. This is normalized to float internally so
-    #     doesn't actually speed anything up :)
-    # This is an approximation of a 5x5 Gaussian kernel with sigma 1.0
-    cv2_default_gauss = np.array([[1, 4, 6, 4,1],
-                                  [4,16,24,16,4],
-                                  [6,24,36,24,6],
-                                  [4,16,24,16,4],
-                                  [1, 4, 6, 4,1]])
     
     # When using photosite operations, the kernel acts more like a 3x3 kernel.
     # TODO - There's a bug with aligment (or scaling) that causes worsening of friging when using original channels. This is unintended,
@@ -123,28 +120,14 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
     #            detail. We can readd high frequency by cutting it from original green channels and adding it back to upscaled green.
     #        There is probably some error with the Gaussian upsampling function but this works.......
     #        I have tried bilinear kernels as well and they don't do as good a job. There's probably some bigger issue here :)
-    delta_gh_hf = g_h - cv2.GaussianBlur(g_h, (3,3), 1.0)
-    delta_gv_vf = g_v - cv2.GaussianBlur(g_v, (3,3), 1.0)
+    delta_gh_hf = g_h - cv2.GaussianBlur(g_h, (3,3), CV2_DEFAULT_KERNEL_SIGMA)
+    delta_gv_hf = g_v - cv2.GaussianBlur(g_v, (3,3), CV2_DEFAULT_KERNEL_SIGMA)
     
-    k_r, k_g, k_g2, k_b = get_rgbg_kernel(cv2_default_gauss, BayerPatternPosition.TOP_LEFT)
+    r_h = resample_channel(r[1:-1, 1:-1], gh_r, delta_gh_hf, BayerPatternPosition.TOP_LEFT)
+    r_v = resample_channel(r[1:-1, 1:-1], gv_r, delta_gv_hf, BayerPatternPosition.TOP_LEFT)
 
-    hg_r = rgbg_to_bayer(cv2.filter2D(gv_r, -1, k_r), cv2.filter2D(gv_r, -1, k_g), cv2.filter2D(gv_r, -1, k_b), cv2.filter2D(gv_r, -1, k_g2)) + delta_gh_hf
-    vg_r = rgbg_to_bayer(cv2.filter2D(gh_r, -1, k_r), cv2.filter2D(gh_r, -1, k_g), cv2.filter2D(gh_r, -1, k_b), cv2.filter2D(gh_r, -1, k_g2)) + delta_gv_vf
-
-    r_h = r[1:-1, 1:-1] - gh_r
-    r_h = rgbg_to_bayer(cv2.filter2D(r_h, -1, k_r), cv2.filter2D(r_h, -1, k_g), cv2.filter2D(r_h, -1, k_b), cv2.filter2D(r_h, -1, k_g2)) + hg_r
-    r_v = r[1:-1, 1:-1] - gv_r
-    r_v = rgbg_to_bayer(cv2.filter2D(r_v, -1, k_r), cv2.filter2D(r_v, -1, k_g), cv2.filter2D(r_v, -1, k_b), cv2.filter2D(r_v, -1, k_g2)) + vg_r 
-
-    k_r, k_g, k_g2, k_b = get_rgbg_kernel(cv2_default_gauss, BayerPatternPosition.BOTTOM_RIGHT)
-
-    hg_b = rgbg_to_bayer(cv2.filter2D(gh_b, -1, k_r), cv2.filter2D(gh_b, -1, k_g), cv2.filter2D(gh_b, -1, k_b), cv2.filter2D(gh_b, -1, k_g2)) + delta_gh_hf
-    vg_b = rgbg_to_bayer(cv2.filter2D(gv_b, -1, k_r), cv2.filter2D(gv_b, -1, k_g), cv2.filter2D(gv_b, -1, k_b), cv2.filter2D(gv_b, -1, k_g2)) + delta_gv_vf
-
-    b_h = b[1:-1, 1:-1] - gh_b
-    b_h = rgbg_to_bayer(cv2.filter2D(b_h, -1, k_r), cv2.filter2D(b_h, -1, k_g), cv2.filter2D(b_h, -1, k_b), cv2.filter2D(b_h, -1, k_g2)) + hg_b
-    b_v = b[1:-1, 1:-1] - gv_b
-    b_v = rgbg_to_bayer(cv2.filter2D(b_v, -1, k_r), cv2.filter2D(b_v, -1, k_g), cv2.filter2D(b_v, -1, k_b), cv2.filter2D(b_v, -1, k_g2)) + vg_b
+    b_h = resample_channel(b[1:-1, 1:-1], gh_b, delta_gh_hf, BayerPatternPosition.BOTTOM_RIGHT)
+    b_v = resample_channel(b[1:-1, 1:-1], gv_b, delta_gv_hf, BayerPatternPosition.BOTTOM_RIGHT)
 
     map_h = build_homogeneity_map(r_h, g_h, b_h, False)
     map_v = build_homogeneity_map(r_v, g_v, b_v, True)
@@ -179,12 +162,6 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
         b = median(b - g) + g
         g = (median(g - r) + median(g - b) + r + b) / 2
         return np.dstack((r,g,b))
-
-    # White balance prior to postprocessing to reduce highlight shifting
-    wb_coeff = image.cam_wb.get_reciprocal_multipliers()
-    debayered[:,:,0] = debayered[:,:,0] * wb_coeff[0]
-    debayered[:,:,1] = debayered[:,:,1] * wb_coeff[1]
-    debayered[:,:,2] = debayered[:,:,2] * wb_coeff[2]
 
     postprocess_stages = max(postprocess_stages, 0)
     for _i in range(postprocess_stages):
