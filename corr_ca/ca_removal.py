@@ -8,7 +8,7 @@ from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from pySP.corr_ca.instability import compute_structural_instability
 from pySP.corr_ca.model.generic import CaCorrectionModel, ReversibleModelMixin
 from pySP.corr_ca.model.poly5 import Poly5CorrectionModel
-from pySP.debayer.edge_assisted_gaussian import resample_g_to_full_resolution
+from pySP.debayer.edge_assisted_bilinear import resample_g_to_full_resolution
 from pySP.debayer.edge_assisted_gaussian import resample_b, resample_r
 from pySP.corr_ca.solver.radial_offset_solver import get_scale_pairs_using_pooled_tiler
 
