@@ -3,7 +3,7 @@ from typing import Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from pySP.base_types.image_base import RawDemosaicData, RawBayerData_BaseType
+from pySP.base_types.image_base import RawDemosaicData, RawRggbBayerData_BaseType
 from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from pySP.debayer.gaussian import CV2_DEFAULT_KERNEL_SIGMA, CV2_DEFAULT_UNNORM_GAUSSIAN_KERNEL, BayerPatternPosition, get_rgbg_kernel
 
@@ -185,7 +185,7 @@ def resample_r(r : np.ndarray, g_upscaled : np.ndarray) -> np.ndarray:
     g_r, _g_g1, _g_b, _g_g2 = bayer_to_rgbg(g_upscaled)
     return resample_channel(r, g_r, g_hf_cut, BayerPatternPosition.TOP_LEFT)
 
-def debayer(image : Union[RawBayerData_BaseType]) -> Optional[RawDemosaicData]:
+def debayer(image : RawRggbBayerData_BaseType) -> RawDemosaicData:
     
     r, g1, b, g2 = bayer_to_rgbg(image.sensor_scaled)
     wb_coeff = image.cam_wb.get_reciprocal_multipliers()

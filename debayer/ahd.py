@@ -5,13 +5,13 @@ import numpy as np
 
 from pySP.debayer.edge_assisted_gaussian import resample_channel
 
-from ..base_types.image_base import RawDemosaicData, RawBayerData_BaseType
+from ..base_types.image_base import RawDemosaicData, RawRggbBayerData_BaseType
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize.transform import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
 from .gaussian import CV2_DEFAULT_KERNEL_SIGMA, BayerPatternPosition
 
-def debayer(image : Union[RawBayerData_BaseType], postprocess_stages : int = 1) -> Optional[RawDemosaicData]:
+def debayer(image : RawRggbBayerData_BaseType, postprocess_stages : int = 1) -> RawDemosaicData:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
     This is slow but produces high-quality results with reduced zippering and smooth graduation.

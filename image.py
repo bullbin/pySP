@@ -146,6 +146,8 @@ class RawBayerDataFromRaw(RawBayerData):
                 reader = BytesIO(filename_or_data)
 
             with rawpy.imread(reader) as in_dng:
+                # TODO - This might change depending on Bayer configuration. So far every file I've seen has had equal
+                #        saturation and black values on every channel.
                 chan_sat = in_dng.camera_white_level_per_channel
                 chan_black = in_dng.black_level_per_channel
                 self.sensor_scaled = bayer_normalize(in_dng.raw_image, chan_black, chan_sat)

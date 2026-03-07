@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-from pySP.base_types.image_base import RawBayerData_BaseType
+from pySP.base_types.image_base import RawRggbBayerData_BaseType
 from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from pySP.corr_ca.instability import compute_structural_instability
 from pySP.corr_ca.model.generic import CaCorrectionModel, ReversibleModelMixin
@@ -12,7 +12,7 @@ from pySP.debayer.edge_assisted_gaussian import resample_g_to_full_resolution
 from pySP.debayer.edge_assisted_gaussian import resample_b, resample_r
 from pySP.corr_ca.solver.radial_offset_solver import get_scale_pairs_using_pooled_tiler
 
-def compute_ca_lens_models_for_raw(raw : RawBayerData_BaseType, init_model_r : Optional[CaCorrectionModel] = Poly5CorrectionModel(), init_model_b : Optional[CaCorrectionModel] = Poly5CorrectionModel(),
+def compute_ca_lens_models_for_raw(raw : RawRggbBayerData_BaseType, init_model_r : Optional[CaCorrectionModel] = Poly5CorrectionModel(), init_model_b : Optional[CaCorrectionModel] = Poly5CorrectionModel(),
                                    max_distortion_additional_scale : float = 0.004) -> Tuple[Optional[CaCorrectionModel], Optional[CaCorrectionModel]]:
     """Fit lens distortion models for removing chromatic abberation by aligning the red and blue channels onto green. This method makes the following assumptions:
     - The chromatic abberation is lateral, i.e., fringing that worsens towards the edges of the image
@@ -45,7 +45,7 @@ def compute_ca_lens_models_for_raw(raw : RawBayerData_BaseType, init_model_r : O
     
     return (init_model_r, init_model_b)
 
-def remove_ca_from_raw(raw : RawBayerData_BaseType, lens_model_r : Optional[CaCorrectionModel], lens_model_b : Optional[CaCorrectionModel]):
+def remove_ca_from_raw(raw : RawRggbBayerData_BaseType, lens_model_r : Optional[CaCorrectionModel], lens_model_b : Optional[CaCorrectionModel]):
     """Remove lateral chromatic abberation from a raw file by applying inverse lens distortions onto the red and blue channels to align it with green.
 
     This method overwrites the source Bayer data with corrected channels. Resampling is performed - repeated uses of this method may lead to

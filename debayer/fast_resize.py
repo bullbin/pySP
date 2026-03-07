@@ -1,12 +1,10 @@
-from typing import Optional
-
 import cv2
 import numpy as np
 
 from pySP.bayer_chan_mixer import bayer_to_rgbg
-from pySP.base_types.image_base import RawDemosaicData, RawBayerData_BaseType
+from pySP.base_types.image_base import RawDemosaicData, RawRggbBayerData_BaseType
 
-def debayer(image : RawBayerData_BaseType) -> Optional[RawDemosaicData]:
+def debayer(image : RawRggbBayerData_BaseType) -> RawDemosaicData:
     """Debayer by resizing channels to fit original resolution.
 
     This is fast but produces low-quality results. Divergence is left uncorrected.
