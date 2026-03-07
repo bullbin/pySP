@@ -2,9 +2,9 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
-from pySP.image import RawBayerData
+from pySP.image import RawRggbBayerData
 
-def compute_structural_instability(image : RawBayerData) -> np.ndarray:
+def compute_structural_instability(image : RawRggbBayerData) -> np.ndarray:
     # Compute simple WB using stored WB. Recommended to set to good value prior to everything
     wb_coeff = image.cam_wb.get_reciprocal_multipliers()
 

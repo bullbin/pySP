@@ -1,5 +1,5 @@
 from pySP.bayer_chan_mixer import rgbg_to_bayer
-from .image import RawBayerData, RawDemosaicData
+from .image import RawRggbBayerData, RawDemosaicData
 from .colorize.transform import cam_to_lin_srgb
 import numpy as np
 from typing import Tuple, List, Optional
@@ -82,7 +82,7 @@ def fuse_exposures_from_debayer(in_exposures : List[RawDemosaicData], target_ev 
 
     return (sum_pixel, debug_count_references)
 
-def fuse_exposures_to_raw(in_exposures : List[RawBayerData], target_ev : Optional[float] = None) -> Optional[Tuple[RawBayerData, np.ndarray]]:
+def fuse_exposures_to_raw(in_exposures : List[RawRggbBayerData], target_ev : Optional[float] = None) -> Optional[Tuple[RawRggbBayerData, np.ndarray]]:
     """Fuse exposures to a new HDR raw image from a list of raw images while preserving the Bayer pattern.
 
     This method operates in sensor-space so is unaffected by response curves or sensor saturation.
@@ -147,7 +147,8 @@ def fuse_exposures_to_raw(in_exposures : List[RawBayerData], target_ev : Optiona
         sum_pixel = np.divide(sum_pixel, sum_weight)
     sum_pixel = np.where(sum_weight == 0, max_exposure, sum_pixel)
 
-    hdr_image = RawBayerData()
+    hdr_image = RawRggbBayerData()
+    hdr_image.source_pattern = in_exposures[0].source_pattern
     hdr_image.sensor_scaled = sum_pixel
     hdr_image.current_ev = target_ev
     hdr_image.lim_sat = max(ev_offsets)
