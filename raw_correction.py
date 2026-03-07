@@ -2,9 +2,9 @@ import numpy as np
 import cv2
 
 from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
-from .image import RawRgbgData
+from .image import RawBayerData
 
-def dark_frame_subtraction(raw : RawRgbgData, dark_frame : RawRgbgData):
+def dark_frame_subtraction(raw : RawBayerData, dark_frame : RawBayerData):
     """Remove dark current noise from an image.
 
     Args:
@@ -13,7 +13,7 @@ def dark_frame_subtraction(raw : RawRgbgData, dark_frame : RawRgbgData):
     """
     return np.copy(raw)
 
-def bias_frame_subtraction(raw : RawRgbgData, bias_frame : RawRgbgData):
+def bias_frame_subtraction(raw : RawBayerData, bias_frame : RawBayerData):
     """Remove fixed-pattern noise from an image.
 
     Args:
@@ -22,7 +22,7 @@ def bias_frame_subtraction(raw : RawRgbgData, bias_frame : RawRgbgData):
     """
     return np.copy(raw)
 
-def flat_frame_correction(image : RawRgbgData, flat : RawRgbgData, clamp_high : bool = False):
+def flat_frame_correction(image : RawBayerData, flat : RawBayerData, clamp_high : bool = False):
     """Apply flat-frame correction in-place to an image.
 
     The output for this method will always be a valid image, but steps are taken in-case of problematic data:
@@ -36,11 +36,8 @@ def flat_frame_correction(image : RawRgbgData, flat : RawRgbgData, clamp_high : 
         clamp_high (bool, optional): True to clamp corrected photosites at 1. Breaks HDR images but useful elsewhere. Defaults to False.
     """
 
-    if not(image.is_valid() and flat.is_valid()):
-        return
-
-    r, g1, b, g2 = bayer_to_rgbg(image.bayer_data_scaled)
-    flat_r, flat_g1, flat_b, flat_g2 = bayer_to_rgbg(flat.bayer_data_scaled)
+    r, g1, b, g2 = bayer_to_rgbg(image.sensor_scaled)
+    flat_r, flat_g1, flat_b, flat_g2 = bayer_to_rgbg(flat.sensor_scaled)
 
     def correct_channel(chan : np.ndarray, chan_flat : np.ndarray) -> np.ndarray:
         # TODO - Add dark frame correction, currently we assume dark frame is zero
@@ -60,7 +57,7 @@ def flat_frame_correction(image : RawRgbgData, flat : RawRgbgData, clamp_high : 
 
         return output
 
-    image.bayer_data_scaled = rgbg_to_bayer(correct_channel(r, flat_r),
+    image.sensor_scaled = rgbg_to_bayer(correct_channel(r, flat_r),
                                             correct_channel(g1, flat_g1),
                                             correct_channel(b, flat_b),
                                             correct_channel(g2, flat_g2))

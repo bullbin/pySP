@@ -1,12 +1,10 @@
-from typing import Optional
-
 import cv2
 import numpy as np
 
 from pySP.bayer_chan_mixer import bayer_to_rgbg
-from pySP.base_types.image_base import RawDebayerData, RawRgbgData_BaseType
+from pySP.base_types.image_base import RawDemosaicData, RawRggbBayerData_BaseType
 
-def debayer(image : RawRgbgData_BaseType) -> Optional[RawDebayerData]:
+def debayer(image : RawRggbBayerData_BaseType) -> RawDemosaicData:
     """Debayer by resizing channels to fit original resolution.
 
     This is fast but produces low-quality results. Divergence is left uncorrected.
@@ -17,14 +15,11 @@ def debayer(image : RawRgbgData_BaseType) -> Optional[RawDebayerData]:
     Returns:
         Optional[RawDebayerData]: Debayered image; None if image is not valid.
     """
-
-    if not(image.is_valid()):
-        return None
     
     wb_coeff = image.cam_wb.get_reciprocal_multipliers()
 
     def debayer_nearest() -> np.ndarray:
-        r, g1, b, g2 = bayer_to_rgbg(image.bayer_data_scaled)
+        r, g1, b, g2 = bayer_to_rgbg(image.sensor_scaled)
 
         rgb = np.zeros((r.shape[0], r.shape[1], 3), dtype=np.float32)
 
@@ -41,9 +36,9 @@ def debayer(image : RawRgbgData_BaseType) -> Optional[RawDebayerData]:
         rgb[:,:,0] = r * wb_coeff[0]
         rgb[:,:,2] = b * wb_coeff[2]
 
-        return cv2.resize(rgb, (image.bayer_data_scaled.shape[1], image.bayer_data_scaled.shape[0]))
+        return cv2.resize(rgb, (image.sensor_scaled.shape[1], image.sensor_scaled.shape[0]))
 
-    output = RawDebayerData(debayer_nearest(), wb_coeff, wb_norm=False)
+    output = RawDemosaicData(debayer_nearest(), wb_coeff, wb_norm=False)
     output.mat_xyz = image.cam_wb.get_matrix()
     output.current_ev = image.current_ev
     return output

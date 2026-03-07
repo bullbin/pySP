@@ -6,7 +6,7 @@ from typing import Optional, Union
 from pySP.wb_cct.cam_wb import CameraWhiteBalanceControllerFromExif
 from .normalization import bayer_normalize
 from .debayer import debayer_ahd, debayer_fast, debayer_eag
-from .base_types.image_base import RawRgbgData_BaseType, RawDebayerData
+from .base_types.image_base import BayerPattern, RawBayerData_BaseType, RawRggbBayerData_BaseType, RawDemosaicData
 
 from .const import QualityDemosaic
 from math import log
@@ -70,13 +70,20 @@ def compute_ev_from_exif(filename_or_data : Union[str, bytes]) -> float:
 
     return compute_ev(iso, exp_time, f_stop)
 
-class RawRgbgData(RawRgbgData_BaseType):
-    def __init__(self):
-        """Base class for storing raw RGBG Bayer sensor data.
-        """
-        super().__init__()
+def reversible_transform_rggb(sensor_data : np.ndarray, bayer_pattern : BayerPattern):
+    if bayer_pattern == BayerPattern.Rggb:
+        return sensor_data
+    elif bayer_pattern == BayerPattern.Bggr:
+        return np.rot90(sensor_data, k=2)
+    elif bayer_pattern == BayerPattern.Gbrg:
+        return np.flip(sensor_data, axis=1)
+    elif bayer_pattern == BayerPattern.Grbg:
+        return np.flip(sensor_data, axis=0)
+    raise NotImplementedError(str(bayer_pattern) + " not implemented!")
 
-    def debayer(self, quality : QualityDemosaic, postprocess_steps : int = 1) -> Optional[RawDebayerData]:
+class RawRggbBayerData(RawRggbBayerData_BaseType):
+
+    def demosaic(self, quality : QualityDemosaic, postprocess_steps : int = 1) -> RawDemosaicData:
         """Debayers (demosaics) this image to a new RawDebayerData object.
 
         This does not modify the original data in any way. All image properties are copied to the new image.
@@ -90,16 +97,36 @@ class RawRgbgData(RawRgbgData_BaseType):
         """
 
         if quality == QualityDemosaic.Best:
-            return debayer_ahd(self, postprocess_stages=postprocess_steps)
+            debayered = debayer_ahd(self, postprocess_stages=postprocess_steps)
         elif quality == QualityDemosaic.Fast:
-            return debayer_eag(self)
+            debayered = debayer_eag(self)
         elif quality == QualityDemosaic.Draft:
-            return debayer_fast(self)
+            debayered = debayer_fast(self)
         else:
             raise NotImplementedError("Quality mode not implemented: %s" % str(quality))
+        
+        # TODO - Change this to remove WB from demosaic methods
 
+        # Revert any transforms needed to make data RGGB
+        debayered.image = reversible_transform_rggb(debayered.image, self.source_pattern)
 
-class RawRgbgDataFromRaw(RawRgbgData):
+        return debayered
+
+class RawBayerData(RawBayerData_BaseType):
+    def __init__(self):
+        """Base class for storing raw RGBG Bayer sensor data.
+        """
+        super().__init__()
+
+    def to_rggb(self):
+        rggb = reversible_transform_rggb(self.sensor_scaled, self.sensor_pattern)
+        return RawRggbBayerData(rggb, self.cam_wb.copy(), self.current_ev, self.lim_sat, self.sensor_pattern)
+    
+    def demosaic(self, quality : QualityDemosaic, postprocess_steps : int = 1) -> RawDemosaicData:
+        rggb = self.to_rggb()
+        return rggb.demosaic(quality, postprocess_steps)
+
+class RawBayerDataFromRaw(RawBayerData):
     def __init__(self, filename_or_data : Union[str, bytes]):
         """Class for storing RGBG Bayer sensor data from a raw file.
 
@@ -112,7 +139,6 @@ class RawRgbgDataFromRaw(RawRgbgData):
         """
 
         super().__init__()
-        self.__is_valid         : bool       = False
 
         try:
             reader = filename_or_data
@@ -120,9 +146,38 @@ class RawRgbgDataFromRaw(RawRgbgData):
                 reader = BytesIO(filename_or_data)
 
             with rawpy.imread(reader) as in_dng:
+                # TODO - This might change depending on Bayer configuration. So far every file I've seen has had equal
+                #        saturation and black values on every channel.
                 chan_sat = in_dng.camera_white_level_per_channel
                 chan_black = in_dng.black_level_per_channel
-                self.bayer_data_scaled = bayer_normalize(in_dng.raw_image, chan_black, chan_sat)
+                self.sensor_scaled = bayer_normalize(in_dng.raw_image, chan_black, chan_sat)
+
+                if in_dng.raw_pattern.shape != (2,2):
+                    raise ValueError("Raw has unsupported Bayer pattern, cannot continue!")
+                
+                try:
+                    raw_cfa_planes = in_dng.color_desc.decode('ascii')
+                except UnicodeDecodeError:
+                    raise ValueError("Raw has unknown color array, %s" % str(in_dng.color_desc))
+                
+                if ''.join(sorted(list(set(raw_cfa_planes.upper())))) != "BGR":
+                    raise ValueError("Raw has unsupported colors, %s" % raw_cfa_planes)
+                
+                try:
+                    raw_cfa_decoded_pattern = ''.join(raw_cfa_planes[i] for i in in_dng.raw_pattern.flatten())
+                except IndexError:
+                    raise ValueError("Raw tried to index out-of-bounds color filter, malformed input!")
+                
+                if raw_cfa_decoded_pattern == "BGGR":
+                    self.sensor_pattern = BayerPattern.Bggr
+                elif raw_cfa_decoded_pattern == "RGGB":
+                    self.sensor_pattern = BayerPattern.Rggb
+                elif raw_cfa_decoded_pattern == "GBRG":
+                    self.sensor_pattern = BayerPattern.Gbrg
+                elif raw_cfa_decoded_pattern == "GRBG":
+                    self.sensor_pattern = BayerPattern.Grbg
+                else:
+                    raise NotImplementedError(f"Bayer pattern {raw_cfa_decoded_pattern} is not supported!")
             
             if type(filename_or_data) == str:
                 with open(filename_or_data, 'rb') as raw:
@@ -133,16 +188,13 @@ class RawRgbgDataFromRaw(RawRgbgData):
             self.cam_wb = CameraWhiteBalanceControllerFromExif(tags)
             
             self.current_ev = compute_ev_from_exif(filename_or_data)
-            if self.current_ev != np.inf:
-                self.__is_valid = True
+            if self.current_ev == np.inf:
+                raise ValueError("Error reading exposure value from raw!")
 
         except (rawpy.LibRawError, FileNotFoundError, IOError) as e:
-            self.__is_valid = False
-    
-    def is_valid(self) -> bool:
-        return self.__is_valid
+            raise ValueError("Raw couldn't be read! " + str(e))
 
-class RawDebayerDataFromRaw(RawDebayerData):
+class RawDebayerDataFromRaw(RawDemosaicData):
     def __init__(self, filename_or_data : Union[str, bytes]):
         """Class for storing RGB demosaiced data from a raw file.
 
@@ -187,7 +239,7 @@ class RawDebayerDataFromRaw(RawDebayerData):
             self.current_ev = compute_ev_from_exif(filename_or_data)
 
         except (rawpy.LibRawError, FileNotFoundError, IOError, OSError) as e:
-            print(e)
+            raise ValueError("Input raw couldn't be read! " + str(e))
     
         self._wb_applied = True
         self._wb_normalized = True
