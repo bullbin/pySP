@@ -2,14 +2,14 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
-from pySP.image import RawRgbgData
+from pySP.image import RawBayerData
 
-def compute_structural_instability(image : RawRgbgData) -> np.ndarray:
+def compute_structural_instability(image : RawBayerData) -> np.ndarray:
     # Compute simple WB using stored WB. Recommended to set to good value prior to everything
     wb_coeff = image.cam_wb.get_reciprocal_multipliers()
 
     # Paper - apply wb coeff NOW
-    r,g0,b,g1 = bayer_to_rgbg(np.copy(image.bayer_data_scaled))
+    r,g0,b,g1 = bayer_to_rgbg(np.copy(image.sensor_scaled))
     r *= wb_coeff[0]
     g0 *= wb_coeff[1]
     g1 *= wb_coeff[1]

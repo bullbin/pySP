@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-from pySP.base_types.image_base import RawRgbgData_BaseType
+from pySP.base_types.image_base import RawBayerData_BaseType
 from pySP.bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from pySP.corr_ca.instability import compute_structural_instability
 from pySP.corr_ca.model.generic import CaCorrectionModel, ReversibleModelMixin
@@ -12,7 +12,7 @@ from pySP.debayer.edge_assisted_gaussian import resample_g_to_full_resolution
 from pySP.debayer.edge_assisted_gaussian import resample_b, resample_r
 from pySP.corr_ca.solver.radial_offset_solver import get_scale_pairs_using_pooled_tiler
 
-def compute_ca_lens_models_for_raw(raw : RawRgbgData_BaseType, init_model_r : Optional[CaCorrectionModel] = Poly5CorrectionModel(), init_model_b : Optional[CaCorrectionModel] = Poly5CorrectionModel(),
+def compute_ca_lens_models_for_raw(raw : RawBayerData_BaseType, init_model_r : Optional[CaCorrectionModel] = Poly5CorrectionModel(), init_model_b : Optional[CaCorrectionModel] = Poly5CorrectionModel(),
                                    max_distortion_additional_scale : float = 0.004) -> Tuple[Optional[CaCorrectionModel], Optional[CaCorrectionModel]]:
     """Fit lens distortion models for removing chromatic abberation by aligning the red and blue channels onto green. This method makes the following assumptions:
     - The chromatic abberation is lateral, i.e., fringing that worsens towards the edges of the image
@@ -45,7 +45,7 @@ def compute_ca_lens_models_for_raw(raw : RawRgbgData_BaseType, init_model_r : Op
     
     return (init_model_r, init_model_b)
 
-def remove_ca_from_raw(raw : RawRgbgData_BaseType, lens_model_r : Optional[CaCorrectionModel], lens_model_b : Optional[CaCorrectionModel]):
+def remove_ca_from_raw(raw : RawBayerData_BaseType, lens_model_r : Optional[CaCorrectionModel], lens_model_b : Optional[CaCorrectionModel]):
     """Remove lateral chromatic abberation from a raw file by applying inverse lens distortions onto the red and blue channels to align it with green.
 
     This method overwrites the source Bayer data with corrected channels. Resampling is performed - repeated uses of this method may lead to
@@ -86,7 +86,7 @@ def remove_ca_from_raw(raw : RawRgbgData_BaseType, lens_model_r : Optional[CaCor
         raise ValueError("Blue lens model is not reversible so green cannot be re-aligned to remove error. Use a reversible model and try again.")
     
     # Resample green using simple upsample approach. We want as high res as possible so we can resample G further without major quality loss
-    r, g1, b, g2 = bayer_to_rgbg(raw.bayer_data_scaled)
+    r, g1, b, g2 = bayer_to_rgbg(raw.sensor_scaled)
     g_resampled = resample_g_to_full_resolution(g1, g2)
 
     # For both channels, this is the workflow:
@@ -129,4 +129,4 @@ def remove_ca_from_raw(raw : RawRgbgData_BaseType, lens_model_r : Optional[CaCor
         
         b = bayer_to_rgbg(b_at_g)[2] / raw.cam_wb.get_reciprocal_multipliers()[2]
     
-    raw.bayer_data_scaled = rgbg_to_bayer(r, g1, b, g2)
+    raw.sensor_scaled = rgbg_to_bayer(r, g1, b, g2)

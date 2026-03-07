@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from typing import List, Optional
 from .bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
-from .image import RawRgbgData
+from .image import RawBayerData
 
 # TODO - More aggressive checking for dimension sizes
 
@@ -27,7 +27,7 @@ def median2(chan : np.ndarray) -> np.ndarray:
     flattened = np.array([chan, chan_e_neighbour, chan_s_neighbour, chan_se_neighbour])
     return np.median(flattened, axis=0)
 
-def find_erroneous_pixels_threshold(image : RawRgbgData, min_delta : float = 0.025, min_neighbour_count : int = 5) -> List[np.ndarray]:
+def find_erroneous_pixels_threshold(image : RawBayerData, min_delta : float = 0.025, min_neighbour_count : int = 5) -> List[np.ndarray]:
     """Finds shared erroneous pixels on each color channel based on differences from its 8
     neighbouring pixels. Hot pixels are considered as pixels that are greater than some
     fixed difference from their neighbours.
@@ -59,12 +59,12 @@ def find_erroneous_pixels_threshold(image : RawRgbgData, min_delta : float = 0.0
         return np.sum(higher, axis=0) > min_neighbour_count
 
     masks = []
-    for chan in bayer_to_rgbg(image.bayer_data_scaled):
+    for chan in bayer_to_rgbg(image.sensor_scaled):
         masks.append(find_erroneous_pixels_threshold_chan(chan))
 
     return masks
 
-def find_erroneous_pixels_median(image : RawRgbgData, multiplier : float = 1.5, quantile : float = 0.9999) -> List[np.ndarray]:
+def find_erroneous_pixels_median(image : RawBayerData, multiplier : float = 1.5, quantile : float = 0.9999) -> List[np.ndarray]:
     """Finds erroneous pixels on each color channel based on differences from
     a small median blur.
 
@@ -79,7 +79,7 @@ def find_erroneous_pixels_median(image : RawRgbgData, multiplier : float = 1.5, 
 
     masks : List[np.ndarray] = []
 
-    for chan in bayer_to_rgbg(image.bayer_data_scaled):
+    for chan in bayer_to_rgbg(image.sensor_scaled):
         chan_blur = median2(chan)
         delta = np.abs(chan - chan_blur)
         noise_floor = np.mean(delta)
@@ -132,7 +132,7 @@ def find_shared_pixels(erroneous_mask : List[List[np.ndarray]], min_ratio : floa
     
     return masks
 
-def repair_bad_pixels(image : RawRgbgData, masks : List[np.ndarray]):
+def repair_bad_pixels(image : RawBayerData, masks : List[np.ndarray]):
     """Infill color channels in an image based on bad pixel masks.
 
     Args:
@@ -143,9 +143,9 @@ def repair_bad_pixels(image : RawRgbgData, masks : List[np.ndarray]):
     if len(masks) != 4:
         return
     
-    chans = bayer_to_rgbg(image.bayer_data_scaled)
+    chans = bayer_to_rgbg(image.sensor_scaled)
     new_chans = []
     for chan, mask in zip(chans, masks):
         new_chans.append(cv2.inpaint(chan, mask.astype(np.uint8) * 255, 3, cv2.INPAINT_NS))
     
-    image.bayer_data_scaled = rgbg_to_bayer(new_chans[0], new_chans[1], new_chans[2], new_chans[3])
+    image.sensor_scaled = rgbg_to_bayer(new_chans[0], new_chans[1], new_chans[2], new_chans[3])

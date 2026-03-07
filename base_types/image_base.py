@@ -1,12 +1,22 @@
-from typing import Optional
+from __future__ import annotations
+
+from enum import IntEnum, auto
+from typing import Optional, Tuple
 import numpy as np
 
 from pySP.colorize.transform import cam_to_lin_srgb
 from pySP.const import QualityDemosaic
 from pySP.wb_cct.cam_wb import CameraWhiteBalanceController
 from pySP.wb_cct.helpers_cam_mat import MatXyzToCamera
+from abc import abstractmethod
 
-class RawDebayerData():
+class BayerPattern(IntEnum):
+    Rggb = auto()
+    Bggr = auto()
+    Grbg = auto()
+    Gbrg = auto()
+
+class RawDemosaicData():
     def __init__(self, image : np.ndarray, wb_coeff : np.ndarray, wb_norm : bool = False):
         """Class for storing RGB pixel data after debayering.
 
@@ -53,17 +63,14 @@ class RawDebayerData():
         self.wb_apply()
         return cam_to_lin_srgb(self.image, self.mat_xyz)
 
-class RawRgbgData_BaseType():
+class RawCameraData_BaseType():
     def __init__(self):
-        """Base class for storing raw RGBG Bayer sensor data. This is primarily for subclasses and typing. Do not instantiate this class manually.
-        """
-
-        self.bayer_data_scaled  : np.ndarray = None
+        self.sensor_scaled      : np.ndarray = None
         self.cam_wb             : CameraWhiteBalanceController = None
         self.current_ev         : float      = np.inf
         self.lim_sat            : float      = 1.0
         self.__is_hdr           : bool       = False
-
+    
     def set_hdr(self, is_hdr : bool):
         """Set whether the image should be treated as HDR or not.
 
@@ -78,18 +85,11 @@ class RawRgbgData_BaseType():
         Returns:
             bool: True if HDR.
         """
-        # TODO - Return True if any part of bayer_data_scaled is greater than 1. 
         return self.__is_hdr
     
-    def is_valid(self) -> bool:
-        """Check if contents of this image are valid, i.e., are expected.
-
-        Returns:
-            bool: True if image is valid; False otherwise.
-        """
-        return type(self.bayer_data_scaled) != type(None) and type(self.cam_wb) != type(None) and self.current_ev != np.inf
-
-    def debayer(self, quality : QualityDemosaic, postprocess_steps : int = 1) -> Optional[RawDebayerData]:
+    @classmethod
+    @abstractmethod
+    def demosaic(self, quality : QualityDemosaic, postprocess_steps : int = 1) -> RawDemosaicData:
         """Debayer this image. Override this method. This is intentionally unimplemented for the base class.
 
         Args:
@@ -97,7 +97,28 @@ class RawRgbgData_BaseType():
             postprocess_steps (int, optional): Amount of divergence correction steps. Lower values retain detail but leave artifacts. Ignored unless using Best quality. Defaults to 1.
 
         Returns:
-            Optional[RawDebayerData]: Base class always returns None.
+            RawDebayerData: Debayered image.
         """
-
         return None
+
+class RawBayerData_BaseType(RawCameraData_BaseType):
+    def __init__(self):
+        """Base class for storing raw RGBG Bayer sensor data. This is primarily for subclasses and typing. Do not instantiate this class manually.
+        """
+        super().__init__()
+        self.sensor_pattern : BayerPattern = None
+    
+    @classmethod
+    @abstractmethod
+    def to_rggb(self) -> RawRggbBayerData_BaseType:
+        return None
+
+class RawRggbBayerData_BaseType(RawCameraData_BaseType):
+    def __init__(self, sensor_scaled : np.ndarray, cam_wb : CameraWhiteBalanceController, shot_ev : float, lim_sat : float,
+                 source_pattern = BayerPattern.Rggb):
+        super().__init__()
+        self.sensor_scaled = sensor_scaled
+        self.cam_wb = cam_wb
+        self.current_ev = shot_ev
+        self.lim_sat = lim_sat
+        self.source_pattern : BayerPattern = source_pattern

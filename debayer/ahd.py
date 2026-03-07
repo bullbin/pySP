@@ -5,13 +5,13 @@ import numpy as np
 
 from pySP.debayer.edge_assisted_gaussian import resample_channel
 
-from ..base_types.image_base import RawDebayerData, RawRgbgData_BaseType
+from ..base_types.image_base import RawDemosaicData, RawBayerData_BaseType
 from ..bayer_chan_mixer import bayer_to_rgbg, rgbg_to_bayer
 from ..colorize.transform import cam_to_lin_srgb
 from .ahd_homogeneity_cython import build_map
 from .gaussian import CV2_DEFAULT_KERNEL_SIGMA, BayerPatternPosition
 
-def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -> Optional[RawDebayerData]:
+def debayer(image : Union[RawBayerData_BaseType], postprocess_stages : int = 1) -> Optional[RawDemosaicData]:
     """Debayer using the Adaptive Homogeneity-Directed Demosaicing algorithm by Hirakawa and Parks (2005).
 
     This is slow but produces high-quality results with reduced zippering and smooth graduation.
@@ -66,10 +66,7 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
         homogeneity = build_map(lab, k_pad, domain_k, is_vertical)
         return homogeneity
 
-    if not(image.is_valid()):
-        return None
-
-    r, g1, b, g2 = bayer_to_rgbg(image.bayer_data_scaled)
+    r, g1, b, g2 = bayer_to_rgbg(image.sensor_scaled)
 
     # White balance early, we can avoid some mess with postprocessing and why not
     # Tweaks some microcontrast. No biggie
@@ -167,7 +164,7 @@ def debayer(image : Union[RawRgbgData_BaseType], postprocess_stages : int = 1) -
     for _i in range(postprocess_stages):
         debayered = postprocess_color(debayered)
 
-    debayered = RawDebayerData(debayered, wb_coeff, wb_norm=False)
+    debayered = RawDemosaicData(debayered, wb_coeff, wb_norm=False)
     debayered.mat_xyz = image.cam_wb.get_matrix()
     debayered.current_ev = image.current_ev
     return debayered
