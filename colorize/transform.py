@@ -38,7 +38,7 @@ def cam_to_rgb_norm(rgb : np.ndarray, cam_xyz_matrix : MatXyzToCamera, destinati
         rgb = clip_rgb(rgb)
     
     mat_rgb_to_xyz_d_cam = destination_colorspace.mat_to_xyz(cam_xyz_matrix.xyz.tolist())
-    color_mat = np.matmul(mat_rgb_to_xyz_d_cam, cam_xyz_matrix.mat)
+    color_mat = np.matmul(cam_xyz_matrix.mat, mat_rgb_to_xyz_d_cam)
 
     # Normalize to remove tint
     # Cam -> XYZ is imperfect with WB so you end up with tint on RGB channels
