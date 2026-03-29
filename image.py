@@ -1,7 +1,9 @@
 from __future__ import annotations
 import numpy as np
 import exifread, rawpy
-from typing import Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
+
+from tifftools import read_tiff as tt_read_tiff, Datatype as tt_Datatype, Tag as tt_Tag
 
 from pySP.wb_cct.cam_wb import CameraWhiteBalanceControllerFromExif
 from .normalization import bayer_normalize
@@ -69,6 +71,67 @@ def compute_ev_from_exif(filename_or_data : Union[str, bytes]) -> float:
         iso = int(str(tags["Image Tag 0x0017"]))
 
     return compute_ev(iso, exp_time, f_stop)
+
+def get_image_area_from_tiff(filename_or_data : Union[str, bytes]) -> Tuple[Optional[List[int,int,int,int]], Optional[Tuple[List[int,int], List[int,int]]]]:
+    # Note - this extracts the crop zone as the absolute area to crop, so uses a few tags to do that
+    #        A small margin should be provided so that demosaic algorithms can access pixels beyond the viewable
+    #            area for best results near the edge
+    # Not all valid DNG files will contain required data for this tag to function. Software often just keeps
+    #     a database of cameras and their actual imaging area. You really want this to be perfect for lens operations
+    #     that assume the center of image to be the imaging center - active area being wrong ruins this
+    # In my Lumix camera the area beyond this area isn't good data, it's chunks of the image being repeated. This is
+    #     probably just extra readout instead of sensor data
+
+    # TODO - I don't like using tifftools, too much can go wrong with IFD not applying to same IFD as raw... assumptions assumptions
+    # TODO - tifftools also needed for some opcode3 stuff. Should probably just keep it always loaded in raw class
+    # TODO - as an aside, raw levels stored in this can also differ quite radically from libraw defaults. Some old Lumix files
+    #            convert with white level 2800 which is wrong. Libraw corrects this to 4095 which is more correct
+
+    def decode_tiff_data(datatag : Dict[str, Union[List[int], bytes, List[float]]]) -> Optional[List[Union[int,float]]]:
+        try:
+            pack = tt_Datatype.get(datatag["datatype"]).pack
+        except AttributeError:
+            return None
+        
+        target = datatag["data"]
+
+        # This is disgusting but it works, to try to be stable against changes we're testing against binary unpacking codes for dtypes
+        if pack in ['B', 'H', 'L', 'b', 'h', 'l', 'f', 'd', 'Q', 'q']:
+            return target
+        else:
+            if len(target) % 2 != 0:
+                return None
+            
+            evens = [x for i,x in enumerate(target) if i % 2 == 0]
+            odds = [x for i,x in enumerate(target) if i % 2 == 1]
+
+            if set(odds) == {1}:
+                return evens
+
+            output = [x/y for x,y in zip(evens,odds)]
+            for i, x in enumerate(output):
+                if x.is_integer():
+                    output[i] = int(output[i])
+
+            return output
+
+    if type(filename_or_data) == bytes:
+        filename_or_data = BytesIO(filename_or_data)
+    
+    try:
+        info = tt_read_tiff(filename_or_data)
+    except:
+        return None
+
+    raw_ifd_tags = info['ifds'][0]['tags'][tt_Tag.SubIFD.value]['ifds'][0][0]['tags']
+
+    tag_active_area = decode_tiff_data(raw_ifd_tags[50829])
+    tag_crop_start = decode_tiff_data(raw_ifd_tags[50719])
+    tag_crop_length = decode_tiff_data(raw_ifd_tags[50720])
+
+    if tag_crop_start == None or tag_crop_length == None:
+        return (tag_active_area, None)
+    return (tag_active_area, (tag_crop_start, tag_crop_length))
 
 def reversible_transform_rggb(sensor_data : np.ndarray, bayer_pattern : BayerPattern):
     if bayer_pattern == BayerPattern.Rggb:
@@ -139,11 +202,20 @@ class RawBayerDataFromRaw(RawBayerData):
         """
 
         super().__init__()
+        self._region_crop : Optional[Tuple[Tuple[int,int], Tuple[int,int]]] = None
 
         try:
             reader = filename_or_data
             if type(filename_or_data) != str:
                 reader = BytesIO(filename_or_data)
+            
+            image_area_param = get_image_area_from_tiff(filename_or_data)
+            if image_area_param != None:
+                region_active_area, region_crop_data = image_area_param
+                try:
+                    self._region_crop = ((region_crop_data[0][0], region_crop_data[0][1]), (region_crop_data[1][0], region_crop_data[1][1]))
+                except IndexError:
+                    pass
 
             with rawpy.imread(reader) as in_dng:
                 # TODO - This might change depending on Bayer configuration. So far every file I've seen has had equal
@@ -178,6 +250,42 @@ class RawBayerDataFromRaw(RawBayerData):
                     self.sensor_pattern = BayerPattern.Grbg
                 else:
                     raise NotImplementedError(f"Bayer pattern {raw_cfa_decoded_pattern} is not supported!")
+                
+                # If active masking is enabled, remove inactive areas from the sensor
+                if region_active_area != None:
+                    x_start, x_end = region_active_area[1], region_active_area[3] + 1
+                    y_start, y_end = region_active_area[0], region_active_area[2] + 1
+
+                    x_start = np.clip(x_start, 0, self.sensor_scaled.shape[1])
+                    x_end   = np.clip(x_end  , 0, self.sensor_scaled.shape[1])
+                    y_start = np.clip(y_start, 0, self.sensor_scaled.shape[0])
+                    y_end   = np.clip(y_end  , 0, self.sensor_scaled.shape[0])
+
+                    self.sensor_scaled = self.sensor_scaled[y_start:y_end, x_start:x_end]
+                
+                if self._region_crop != None:
+                    # For safety, crop the sensor region to only use the export area on the sensor
+                    # This will worsen demosaic quality on the very edges.
+                    # TODO - Make edge param more available so we can keep most of data and crop only at end
+                    #        Some arrangements mean that the image center is not the sensor center so we have to crop before
+                    #        lens operations
+                    region_start, region_len = self._region_crop
+
+                    # If these are bigger than the filter array size (2), this changes the filter order.
+                    if region_start[0] % 2 != 0 or region_start[1] % 2 != 0:
+                        raise NotImplementedError("Sensor crop start would modify CFA pattern order. Not implemented!")
+                    if region_len[0] % 2 != 0 or region_len[1] % 2 != 0:
+                        raise NotImplementedError("Sensor crop length would cut the CFA array. Not implemented!")
+                    
+                    # start is horizontal (x), vertical (y)
+                    r_s_x = np.clip(region_start[0], 0, self.sensor_scaled.shape[1] - 1)
+                    r_s_y = np.clip(region_start[1], 0, self.sensor_scaled.shape[0] - 1)
+
+                    # len is width, height
+                    r_e_x = np.clip(r_s_x + region_len[0], r_s_x + 1, self.sensor_scaled.shape[1])
+                    r_e_y = np.clip(r_s_y + region_len[1], r_s_y + 1, self.sensor_scaled.shape[0])
+
+                    self.sensor_scaled = self.sensor_scaled[r_s_y:r_e_y, r_s_x:r_e_x]
             
             if type(filename_or_data) == str:
                 with open(filename_or_data, 'rb') as raw:
