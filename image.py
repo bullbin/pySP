@@ -121,13 +121,20 @@ def get_image_area_from_tiff(filename_or_data : Union[str, bytes]) -> Tuple[Opti
     try:
         info = tt_read_tiff(filename_or_data)
     except:
-        return None
+        return (None, None)
 
     raw_ifd_tags = info['ifds'][0]['tags'][tt_Tag.SubIFD.value]['ifds'][0][0]['tags']
 
-    tag_active_area = decode_tiff_data(raw_ifd_tags[50829])
-    tag_crop_start = decode_tiff_data(raw_ifd_tags[50719])
-    tag_crop_length = decode_tiff_data(raw_ifd_tags[50720])
+    try:
+        tag_active_area = decode_tiff_data(raw_ifd_tags[50829])
+    except KeyError:
+        tag_active_area = None
+
+    try:
+        tag_crop_start = decode_tiff_data(raw_ifd_tags[50719])
+        tag_crop_length = decode_tiff_data(raw_ifd_tags[50720])
+    except KeyError:
+        return (tag_active_area, None)
 
     if tag_crop_start == None or tag_crop_length == None:
         return (tag_active_area, None)
@@ -202,20 +209,17 @@ class RawBayerDataFromRaw(RawBayerData):
         """
 
         super().__init__()
-        self._region_crop : Optional[Tuple[Tuple[int,int], Tuple[int,int]]] = None
 
         try:
             reader = filename_or_data
             if type(filename_or_data) != str:
                 reader = BytesIO(filename_or_data)
             
-            image_area_param = get_image_area_from_tiff(filename_or_data)
-            if image_area_param != None:
-                region_active_area, region_crop_data = image_area_param
-                try:
-                    self._region_crop = ((region_crop_data[0][0], region_crop_data[0][1]), (region_crop_data[1][0], region_crop_data[1][1]))
-                except IndexError:
-                    pass
+            region_active_area, region_crop_data = get_image_area_from_tiff(filename_or_data)
+            try:
+                region_crop_data = ((region_crop_data[0][0], region_crop_data[0][1]), (region_crop_data[1][0], region_crop_data[1][1]))
+            except IndexError:
+                region_crop_data = None
 
             with rawpy.imread(reader) as in_dng:
                 # TODO - This might change depending on Bayer configuration. So far every file I've seen has had equal
@@ -263,13 +267,13 @@ class RawBayerDataFromRaw(RawBayerData):
 
                     self.sensor_scaled = self.sensor_scaled[y_start:y_end, x_start:x_end]
                 
-                if self._region_crop != None:
+                if region_crop_data != None:
                     # For safety, crop the sensor region to only use the export area on the sensor
                     # This will worsen demosaic quality on the very edges.
                     # TODO - Make edge param more available so we can keep most of data and crop only at end
                     #        Some arrangements mean that the image center is not the sensor center so we have to crop before
                     #        lens operations
-                    region_start, region_len = self._region_crop
+                    region_start, region_len = region_crop_data
 
                     # If these are bigger than the filter array size (2), this changes the filter order.
                     if region_start[0] % 2 != 0 or region_start[1] % 2 != 0:
