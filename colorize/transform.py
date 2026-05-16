@@ -160,3 +160,50 @@ def oklab_to_lin_srgb(oklab : np.ndarray) -> np.ndarray:
 	g = -1.2684380046 * l_prime + 2.6097574011 * m_prime - 0.3413193965 * s_prime
 	b = -0.0041960863 * l_prime - 0.7034186147 * m_prime + 1.7076147010 * s_prime
 	return np.dstack((r,g,b))
+
+def xyzd65_to_oklab(xyz : np.ndarray) -> np.ndarray:
+    """Convert an XYZd65 image to Oklab.
+
+
+    Args:
+        xyz (np.ndarray): XYZd65 image. No clamping is applied.
+
+    Returns:
+        np.ndarray: Oklab image.
+    """
+    x,y,z = xyz[...,0], xyz[...,1], xyz[...,2]
+
+    # TODO - Support premul with Bradford adapt to prevent multiple matrix op
+    # TODO - Reuse m1,m2 from opposite method, its cleaner to look at and might run faster...
+    l_prime = 0.8189330101 * x + 0.3618667424 * y - 0.1288597137 * z
+    m_prime = 0.0329845436 * x + 0.9293118715 * y + 0.0361456387 * z
+    s_prime = 0.0482003018 * x + 0.2643662691 * y + 0.6338517070 * z
+
+    l_prime = np.cbrt(l_prime)
+    m_prime = np.cbrt(m_prime)
+    s_prime = np.cbrt(s_prime)
+
+    ok_l = 0.2104542553 * l_prime + 0.7936177850 * m_prime - 0.0040720468 * s_prime
+    ok_a = 1.9779984951 * l_prime - 2.4285922050 * m_prime + 0.4505937099 * s_prime
+    ok_b = 0.0259040371 * l_prime + 0.7827717662 * m_prime - 0.8086757660 * s_prime
+    return np.dstack((ok_l,ok_a,ok_b))
+
+def oklab_to_xyzd65(oklab : np.ndarray) -> np.ndarray:
+    """Convert an Oklab image to XYZd65.
+
+    Args:
+        xyz (np.ndarray): Oklab image. No clamping is applied.
+
+    Returns:
+        np.ndarray: XYZd65 image.
+    """
+    m1 = np.array([[0.8189330101, 0.3618667424, -0.1288597137],
+                   [0.0329845436, 0.9293118715, 0.0361456387],
+                   [0.0482003018, 0.2643662691, 0.6338517070]])
+    m2 = np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                   [1.9779984951, -2.4285922050, 0.4505937099],
+                   [0.0259040371, 0.7827717662, -0.8086757660]])
+    
+    lms_prime = np.dot(oklab, np.linalg.inv(m2).T)
+    lms = np.pow(lms_prime, 3)
+    return np.dot(lms, np.linalg.inv(m1).T)
