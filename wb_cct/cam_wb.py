@@ -258,7 +258,7 @@ class CameraWhiteBalanceController():
         """
         mats = []
         for mat in self.__mats:
-            mats.append(MatXyzToCamera(mat.mat, mat.xyz))
+            mats.append(MatXyzToCamera(mat.mat, mat.xyz, mat.series))
         output = CameraWhiteBalanceController(mats, self.__optimal_multipliers)
         output.__optimal_mat = MatXyzToCamera(self.__optimal_mat.mat, self.__optimal_mat.xyz)
         return output
